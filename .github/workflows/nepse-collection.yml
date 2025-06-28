@@ -1,0 +1,125 @@
+# .github/workflows/nepse-collection.yml
+name: NEPSE Data Collection
+
+on:
+  schedule:
+    # Run every 15 minutes during NEPSE market hours (Sunday-Thursday, 10:00-15:00 NPT)
+    # Convert NPT (UTC+5:45) to UTC for GitHub Actions
+    # 10:00 NPT = 04:15 UTC, 15:00 NPT = 09:15 UTC
+    - cron: '15 4 * * 0,1,2,3,6'    # 10:00 NPT (market open)
+    - cron: '30 4 * * 0,1,2,3,6'    # 10:15 NPT
+    - cron: '45 4 * * 0,1,2,3,6'    # 10:30 NPT
+    - cron: '0 5 * * 0,1,2,3,6'     # 10:45 NPT
+    - cron: '15 5 * * 0,1,2,3,6'    # 11:00 NPT
+    - cron: '30 5 * * 0,1,2,3,6'    # 11:15 NPT
+    - cron: '45 5 * * 0,1,2,3,6'    # 11:30 NPT
+    - cron: '0 6 * * 0,1,2,3,6'     # 11:45 NPT
+    - cron: '15 6 * * 0,1,2,3,6'    # 12:00 NPT
+    - cron: '30 6 * * 0,1,2,3,6'    # 12:15 NPT
+    - cron: '45 6 * * 0,1,2,3,6'    # 12:30 NPT
+    - cron: '0 7 * * 0,1,2,3,6'     # 12:45 NPT
+    - cron: '15 7 * * 0,1,2,3,6'    # 13:00 NPT
+    - cron: '30 7 * * 0,1,2,3,6'    # 13:15 NPT
+    - cron: '45 7 * * 0,1,2,3,6'    # 13:30 NPT
+    - cron: '0 8 * * 0,1,2,3,6'     # 13:45 NPT
+    - cron: '15 8 * * 0,1,2,3,6'    # 14:00 NPT
+    - cron: '30 8 * * 0,1,2,3,6'    # 14:15 NPT
+    - cron: '45 8 * * 0,1,2,3,6'    # 14:30 NPT
+    - cron: '0 9 * * 0,1,2,3,6'     # 14:45 NPT
+    - cron: '15 9 * * 0,1,2,3,6'    # 15:00 NPT (market close)
+  
+  # Allow manual trigger
+  workflow_dispatch:
+
+jobs:
+  collect-nepse-data:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install dependencies
+      run: |
+        pip install requests pandas pytz schedule
+        
+    - name: Set up NepseAPI Server
+      run: |
+        # Clone and start NepseAPI in background
+        git clone https://github.com/surajrimal07/NepseAPI.git
+        cd NepseAPI
+        pip install -r requirements.txt
+        nohup python server.py &
+        sleep 10  # Wait for server to start
+        
+    - name: Test API Connection
+      run: |
+        # Test if API is working
+        curl -f http://localhost:8000/ || exit 1
+        
+    - name: Run NEPSE Data Collection
+      run: |
+        python -c "
+        import sys
+        sys.path.append('.')
+        
+        # Import our collector
+        from smart_collector import SmartMarketCollector
+        
+        # Create collector instance
+        collector = SmartMarketCollector()
+        
+        # Check if market should be open (GitHub Actions runs on UTC)
+        import datetime
+        import pytz
+        
+        nepal_tz = pytz.timezone('Asia/Kathmandu')
+        now = datetime.datetime.now(nepal_tz)
+        
+        print(f'Current Nepal time: {now}')
+        print(f'Day of week: {now.weekday()} (0=Monday, 6=Sunday)')
+        print(f'Hour: {now.hour}')
+        
+        # Only collect if market should be open
+        if collector.is_market_open(now):
+            print('Market should be open - collecting data...')
+            result = collector.collect_unified_data()
+            if result == 'market_closed':
+                print('Market detected as closed during collection')
+            elif result:
+                print(f'Data collection successful: {result}')
+            else:
+                print('Data collection failed')
+        else:
+            print('Market is closed - skipping collection')
+        "
+        
+    - name: Upload collected data
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: nepse-data-${{ github.run_number }}
+        path: |
+          data/
+          logs/
+        retention-days: 30
+        
+    - name: Commit and push data (if any)
+      if: always()
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        
+        # Only commit if there are files to commit
+        if [ -d "data" ] && [ "$(ls -A data)" ]; then
+          git add data/ logs/ || true
+          git commit -m "Automated NEPSE data collection - $(date -u)" || true
+          git push || true
+        else
+          echo "No data files to commit"
+        fi
