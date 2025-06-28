@@ -69,10 +69,10 @@ jobs:
         sys.path.append('.')
         
         # Import our collector
-        from smart_collector import SmartMarketCollector
+        from smart_collector import CloudNepseCollector
         
         # Create collector instance
-        collector = SmartMarketCollector()
+        collector = CloudNepseCollector()
         
         # Check if market should be open (GitHub Actions runs on UTC)
         import datetime
@@ -88,7 +88,7 @@ jobs:
         # Only collect if market should be open
         if collector.is_market_open(now):
             print('Market should be open - collecting data...')
-            result = collector.collect_unified_data()
+            result = collector.collect_single_run()
             if result == 'market_closed':
                 print('Market detected as closed during collection')
             elif result:
