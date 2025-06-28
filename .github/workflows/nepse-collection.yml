@@ -69,7 +69,7 @@ jobs:
         sys.path.append('.')
         
         # Import our collector
-        from smart_collector import CloudNepseCollector
+        from cloud_collector import CloudNepseCollector
         
         # Create collector instance
         collector = CloudNepseCollector()
