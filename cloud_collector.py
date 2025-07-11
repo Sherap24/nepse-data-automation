@@ -2,6 +2,7 @@
 """
 Cloud-Optimized NEPSE Data Collector
 Designed for GitHub Actions and serverless environments
+FIXED: Now includes Friday trading hours (11 AM - 1 PM)
 """
 
 import requests
@@ -57,20 +58,49 @@ class CloudNepseCollector:
             f.write(log_message + "\n")
 
     def is_market_open(self, time=None):
-        """Check if NEPSE market should be open"""
+        """Check if NEPSE market should be open (FIXED: Now includes Friday hours)"""
         if time is None:
             time = datetime.now(NEPAL_TZ)
         
-        # Trading days: Sunday=6, Monday=0, Tuesday=1, Wednesday=2, Thursday=3
-        trading_days = [6, 0, 1, 2, 3]
-        if time.weekday() not in trading_days:
+        weekday = time.weekday()
+        
+        # NEPSE Trading Schedule:
+        # Sunday=6, Monday=0, Tuesday=1, Wednesday=2, Thursday=3, Friday=4
+        # Saturday=5 (no trading)
+        
+        if weekday == 5:  # Saturday - no trading
             return False
         
-        # Market hours: 10:00-15:00 NPT
-        market_open = time.replace(hour=10, minute=0, second=0, microsecond=0)
-        market_close = time.replace(hour=15, minute=0, second=0, microsecond=0)
+        # Friday has different hours (11 AM - 1 PM)
+        if weekday == 4:  # Friday
+            market_open = time.replace(hour=11, minute=0, second=0, microsecond=0)
+            market_close = time.replace(hour=13, minute=0, second=0, microsecond=0)  # 1 PM
+            return market_open <= time <= market_close
         
-        return market_open <= time <= market_close
+        # Sunday to Thursday (regular trading days: 11 AM - 3 PM)
+        elif weekday in [6, 0, 1, 2, 3]:  # Sun, Mon, Tue, Wed, Thu
+            market_open = time.replace(hour=11, minute=0, second=0, microsecond=0)
+            market_close = time.replace(hour=15, minute=0, second=0, microsecond=0)  # 3 PM
+            return market_open <= time <= market_close
+        
+        return False
+
+    def get_market_schedule_info(self, time=None):
+        """Get human-readable market schedule information"""
+        if time is None:
+            time = datetime.now(NEPAL_TZ)
+        
+        weekday = time.weekday()
+        day_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        
+        if weekday == 5:  # Saturday
+            return f"{day_names[weekday]} - Market Closed"
+        elif weekday == 4:  # Friday
+            return f"{day_names[weekday]} - Trading Hours: 11:00 AM - 1:00 PM NPT"
+        elif weekday in [6, 0, 1, 2, 3]:  # Sun-Thu
+            return f"{day_names[weekday]} - Trading Hours: 11:00 AM - 3:00 PM NPT"
+        
+        return f"{day_names[weekday]} - Market Closed"
 
     def test_api_connection(self):
         """Test if the API is accessible"""
@@ -119,7 +149,8 @@ class CloudNepseCollector:
                         'data_source': endpoint_name,
                         'record_id': f"{endpoint_name}_{i+1}",
                         'market_open': self.is_market_open(timestamp),
-                        'collection_method': 'cloud_automated'
+                        'collection_method': 'cloud_automated',
+                        'market_schedule': self.get_market_schedule_info(timestamp)
                     }
                     
                     # Add all fields from the original record
@@ -136,7 +167,8 @@ class CloudNepseCollector:
                 'data_source': endpoint_name,
                 'record_id': f"{endpoint_name}_summary",
                 'market_open': self.is_market_open(timestamp),
-                'collection_method': 'cloud_automated'
+                'collection_method': 'cloud_automated',
+                'market_schedule': self.get_market_schedule_info(timestamp)
             }
             
             for key, value in data.items():
@@ -151,10 +183,12 @@ class CloudNepseCollector:
         """Single data collection run - perfect for cloud functions"""
         timestamp = datetime.now(NEPAL_TZ)
         self.log(f"🚀 Starting cloud data collection at {timestamp.strftime('%H:%M:%S %Z')}")
+        self.log(f"📅 {self.get_market_schedule_info(timestamp)}")
         
         # Check if market should be open
         if not self.is_market_open(timestamp):
-            self.log("📴 Market is closed - no collection needed")
+            self.log(f"📴 Market is closed - no collection needed")
+            self.log(f"📋 Current time: {timestamp.strftime('%A %H:%M NPT')}")
             return None
         
         # Test API connection first
@@ -199,6 +233,9 @@ class CloudNepseCollector:
             # Save summary
             summary = {
                 'collection_time': timestamp.isoformat(),
+                'collection_time_npt': timestamp.strftime('%Y-%m-%d %H:%M:%S NPT'),
+                'day_of_week': timestamp.strftime('%A'),
+                'market_schedule': self.get_market_schedule_info(timestamp),
                 'total_records': len(df),
                 'successful_endpoints': successful_endpoints,
                 'records_by_source': df['data_source'].value_counts().to_dict(),
