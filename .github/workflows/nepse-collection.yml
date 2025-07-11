@@ -1,32 +1,42 @@
 # .github/workflows/nepse-collection.yml
-name: NEPSE Data Collection
+name: NEPSE Data Collection (with Friday Support)
 
 on:
   schedule:
-    # Run every 15 minutes during NEPSE market hours (Sunday-Thursday, 10:00-15:00 NPT)
+    # NEPSE Trading Hours:
+    # Sunday-Thursday: 11:00-15:00 NPT (05:15-09:15 UTC)
+    # Friday: 11:00-13:00 NPT (05:15-07:15 UTC)
     # Convert NPT (UTC+5:45) to UTC for GitHub Actions
-    # 10:00 NPT = 04:15 UTC, 15:00 NPT = 09:15 UTC
-    - cron: '15 4 * * 0,1,2,3,6'    # 10:00 NPT (market open)
-    - cron: '30 4 * * 0,1,2,3,6'    # 10:15 NPT
-    - cron: '45 4 * * 0,1,2,3,6'    # 10:30 NPT
-    - cron: '0 5 * * 0,1,2,3,6'     # 10:45 NPT
-    - cron: '15 5 * * 0,1,2,3,6'    # 11:00 NPT
-    - cron: '30 5 * * 0,1,2,3,6'    # 11:15 NPT
-    - cron: '45 5 * * 0,1,2,3,6'    # 11:30 NPT
-    - cron: '0 6 * * 0,1,2,3,6'     # 11:45 NPT
-    - cron: '15 6 * * 0,1,2,3,6'    # 12:00 NPT
-    - cron: '30 6 * * 0,1,2,3,6'    # 12:15 NPT
-    - cron: '45 6 * * 0,1,2,3,6'    # 12:30 NPT
-    - cron: '0 7 * * 0,1,2,3,6'     # 12:45 NPT
-    - cron: '15 7 * * 0,1,2,3,6'    # 13:00 NPT
-    - cron: '30 7 * * 0,1,2,3,6'    # 13:15 NPT
-    - cron: '45 7 * * 0,1,2,3,6'    # 13:30 NPT
-    - cron: '0 8 * * 0,1,2,3,6'     # 13:45 NPT
-    - cron: '15 8 * * 0,1,2,3,6'    # 14:00 NPT
-    - cron: '30 8 * * 0,1,2,3,6'    # 14:15 NPT
-    - cron: '45 8 * * 0,1,2,3,6'    # 14:30 NPT
-    - cron: '0 9 * * 0,1,2,3,6'     # 14:45 NPT
-    - cron: '15 9 * * 0,1,2,3,6'    # 15:00 NPT (market close)
+    
+    # Sunday-Thursday: Full trading day (11:00-15:00 NPT)
+    - cron: '15 5 * * 0,1,2,3,6'     # 11:00 NPT (market open)
+    - cron: '30 5 * * 0,1,2,3,6'     # 11:15 NPT
+    - cron: '45 5 * * 0,1,2,3,6'     # 11:30 NPT
+    - cron: '0 6 * * 0,1,2,3,6'      # 11:45 NPT
+    - cron: '15 6 * * 0,1,2,3,6'     # 12:00 NPT
+    - cron: '30 6 * * 0,1,2,3,6'     # 12:15 NPT
+    - cron: '45 6 * * 0,1,2,3,6'     # 12:30 NPT
+    - cron: '0 7 * * 0,1,2,3,6'      # 12:45 NPT
+    - cron: '15 7 * * 0,1,2,3,6'     # 13:00 NPT
+    - cron: '30 7 * * 0,1,2,3,6'     # 13:15 NPT
+    - cron: '45 7 * * 0,1,2,3,6'     # 13:30 NPT
+    - cron: '0 8 * * 0,1,2,3,6'      # 13:45 NPT
+    - cron: '15 8 * * 0,1,2,3,6'     # 14:00 NPT
+    - cron: '30 8 * * 0,1,2,3,6'     # 14:15 NPT
+    - cron: '45 8 * * 0,1,2,3,6'     # 14:30 NPT
+    - cron: '0 9 * * 0,1,2,3,6'      # 14:45 NPT
+    - cron: '15 9 * * 0,1,2,3,6'     # 15:00 NPT (market close)
+    
+    # Friday: Short trading day (11:00-13:00 NPT) - NEWLY ADDED
+    - cron: '15 5 * * 5'             # 11:00 NPT (Friday market open)
+    - cron: '30 5 * * 5'             # 11:15 NPT (Friday)
+    - cron: '45 5 * * 5'             # 11:30 NPT (Friday)
+    - cron: '0 6 * * 5'              # 11:45 NPT (Friday)
+    - cron: '15 6 * * 5'             # 12:00 NPT (Friday)
+    - cron: '30 6 * * 5'             # 12:15 NPT (Friday)
+    - cron: '45 6 * * 5'             # 12:30 NPT (Friday)
+    - cron: '0 7 * * 5'              # 12:45 NPT (Friday)
+    - cron: '15 7 * * 5'             # 13:00 NPT (Friday market close)
   
   # Allow manual trigger
   workflow_dispatch:
@@ -55,12 +65,23 @@ jobs:
         cd NepseAPI
         pip install -r requirements.txt
         nohup python server.py &
-        sleep 10  # Wait for server to start
+        sleep 30  # Increased wait time for better reliability
         
     - name: Test API Connection
       run: |
-        # Test if API is working
-        curl -f http://localhost:8000/ || exit 1
+        # Test if API is working with retries
+        for i in {1..5}; do
+          if curl -f http://localhost:8000/ > /dev/null 2>&1; then
+            echo "✅ API server is running!"
+            break
+          else
+            echo "⏳ Attempt $i/5: API not ready, waiting 10 seconds..."
+            sleep 10
+          fi
+        done
+        
+        # Final test
+        curl -f http://localhost:8000/ || (echo "❌ API server failed to start" && exit 1)
         
     - name: Run NEPSE Data Collection
       run: |
@@ -81,23 +102,48 @@ jobs:
         nepal_tz = pytz.timezone('Asia/Kathmandu')
         now = datetime.datetime.now(nepal_tz)
         
-        print(f'Current Nepal time: {now}')
-        print(f'Day of week: {now.weekday()} (0=Monday, 6=Sunday)')
-        print(f'Hour: {now.hour}')
+        print(f'🕐 Current Nepal time: {now}')
+        print(f'📅 Day: {now.strftime(\"%A\")} (weekday {now.weekday()})')
+        print(f'⏰ Time: {now.strftime(\"%H:%M NPT\")}')
+        print(f'📋 {collector.get_market_schedule_info(now)}')
         
         # Only collect if market should be open
         if collector.is_market_open(now):
-            print('Market should be open - collecting data...')
+            print('✅ Market should be open - collecting data...')
             result = collector.collect_single_run()
             if result == 'market_closed':
-                print('Market detected as closed during collection')
+                print('📴 Market detected as closed during collection')
             elif result:
-                print(f'Data collection successful: {result}')
+                print(f'💾 Data collection successful: {result}')
             else:
-                print('Data collection failed')
+                print('❌ Data collection failed')
         else:
-            print('Market is closed - skipping collection')
+            print('📴 Market is closed - skipping collection')
+            print(f'ℹ️  Next trading: Check schedule for market hours')
         "
+        
+    - name: Show collection results
+      if: always()
+      run: |
+        echo "📊 Collection Results:"
+        if [ -d \"data\" ]; then
+          echo \"📁 Files created: \$(ls data/ | wc -l)\"
+          ls -lh data/
+          
+          # Show summary if available
+          if ls data/*summary*.json 1> /dev/null 2>&1; then
+            echo \"📋 Latest collection summary:\"
+            cat data/*summary*.json | tail -1 | python -m json.tool || echo \"Summary not readable\"
+          fi
+        else
+          echo \"❌ No data directory found\"
+        fi
+        
+        # Show logs
+        if [ -f \"logs/cloud_collector.log\" ]; then
+          echo \"📄 Recent collector logs:\"
+          tail -10 logs/cloud_collector.log
+        fi
         
     - name: Upload collected data
       uses: actions/upload-artifact@v4
@@ -120,6 +166,7 @@ jobs:
           git add data/ logs/ || true
           git commit -m "Automated NEPSE data collection - $(date -u)" || true
           git push || true
+          echo "✅ Data committed to repository"
         else
-          echo "No data files to commit"
+          echo "ℹ️  No data files to commit"
         fi
