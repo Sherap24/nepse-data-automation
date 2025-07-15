@@ -72,16 +72,16 @@ jobs:
         # Test if API is working with retries
         for i in {1..5}; do
           if curl -f http://localhost:8000/ > /dev/null 2>&1; then
-            echo "✅ API server is running!"
+            echo "API server is running!"
             break
           else
-            echo "⏳ Attempt $i/5: API not ready, waiting 10 seconds..."
+            echo "Attempt $i/5: API not ready, waiting 10 seconds..."
             sleep 10
           fi
         done
         
         # Final test
-        curl -f http://localhost:8000/ || (echo "❌ API server failed to start" && exit 1)
+        curl -f http://localhost:8000/ || (echo "API server failed to start" && exit 1)
         
     - name: Run NEPSE Data Collection
       run: |
@@ -102,46 +102,46 @@ jobs:
         nepal_tz = pytz.timezone('Asia/Kathmandu')
         now = datetime.datetime.now(nepal_tz)
         
-        print(f'🕐 Current Nepal time: {now}')
-        print(f'📅 Day: {now.strftime(\"%A\")} (weekday {now.weekday()})')
-        print(f'⏰ Time: {now.strftime(\"%H:%M NPT\")}')
-        print(f'📋 {collector.get_market_schedule_info(now)}')
+        print(f'Current Nepal time: {now}')
+        print(f'Day: {now.strftime(\"%A\")} (weekday {now.weekday()})')
+        print(f'Time: {now.strftime(\"%H:%M NPT\")}')
+        print(f'Market schedule: {collector.get_market_schedule_info(now)}')
         
         # Only collect if market should be open
         if collector.is_market_open(now):
-            print('✅ Market should be open - collecting data...')
+            print('Market should be open - collecting data...')
             result = collector.collect_single_run()
             if result == 'market_closed':
-                print('📴 Market detected as closed during collection')
+                print('Market detected as closed during collection')
             elif result:
-                print(f'💾 Data collection successful: {result}')
+                print(f'Data collection successful: {result}')
             else:
-                print('❌ Data collection failed')
+                print('Data collection failed')
         else:
-            print('📴 Market is closed - skipping collection')
-            print(f'ℹ️  Next trading: Check schedule for market hours')
+            print('Market is closed - skipping collection')
+            print('Next trading: Check schedule for market hours')
         "
         
     - name: Show collection results
       if: always()
       run: |
-        echo "📊 Collection Results:"
-        if [ -d \"data\" ]; then
-          echo \"📁 Files created: \$(ls data/ | wc -l)\"
+        echo "Collection Results:"
+        if [ -d "data" ]; then
+          echo "Files created: $(ls data/ | wc -l)"
           ls -lh data/
           
           # Show summary if available
           if ls data/*summary*.json 1> /dev/null 2>&1; then
-            echo \"📋 Latest collection summary:\"
-            cat data/*summary*.json | tail -1 | python -m json.tool || echo \"Summary not readable\"
+            echo "Latest collection summary:"
+            cat data/*summary*.json | tail -1 | python -m json.tool || echo "Summary not readable"
           fi
         else
-          echo \"❌ No data directory found\"
+          echo "No data directory found"
         fi
         
         # Show logs
-        if [ -f \"logs/cloud_collector.log\" ]; then
-          echo \"📄 Recent collector logs:\"
+        if [ -f "logs/cloud_collector.log" ]; then
+          echo "Recent collector logs:"
           tail -10 logs/cloud_collector.log
         fi
         
@@ -166,7 +166,7 @@ jobs:
           git add data/ logs/ || true
           git commit -m "Automated NEPSE data collection - $(date -u)" || true
           git push || true
-          echo "✅ Data committed to repository"
+          echo "Data committed to repository"
         else
-          echo "ℹ️  No data files to commit"
+          echo "No data files to commit"
         fi
