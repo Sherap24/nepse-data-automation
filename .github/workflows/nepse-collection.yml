@@ -1,172 +1,385 @@
-# .github/workflows/nepse-collection.yml
-name: NEPSE Data Collection (with Friday Support)
+name: NEPSE Data Collection + Drive Uploads
 
 on:
   schedule:
-    # NEPSE Trading Hours:
-    # Sunday-Thursday: 11:00-15:00 NPT (05:15-09:15 UTC)
-    # Friday: 11:00-13:00 NPT (05:15-07:15 UTC)
-    # Convert NPT (UTC+5:45) to UTC for GitHub Actions
-    
-    # Sunday-Thursday: Full trading day (11:00-15:00 NPT)
-    - cron: '15 5 * * 0,1,2,3,6'     # 11:00 NPT (market open)
-    - cron: '30 5 * * 0,1,2,3,6'     # 11:15 NPT
-    - cron: '45 5 * * 0,1,2,3,6'     # 11:30 NPT
-    - cron: '0 6 * * 0,1,2,3,6'      # 11:45 NPT
-    - cron: '15 6 * * 0,1,2,3,6'     # 12:00 NPT
-    - cron: '30 6 * * 0,1,2,3,6'     # 12:15 NPT
-    - cron: '45 6 * * 0,1,2,3,6'     # 12:30 NPT
-    - cron: '0 7 * * 0,1,2,3,6'      # 12:45 NPT
-    - cron: '15 7 * * 0,1,2,3,6'     # 13:00 NPT
-    - cron: '30 7 * * 0,1,2,3,6'     # 13:15 NPT
-    - cron: '45 7 * * 0,1,2,3,6'     # 13:30 NPT
-    - cron: '0 8 * * 0,1,2,3,6'      # 13:45 NPT
-    - cron: '15 8 * * 0,1,2,3,6'     # 14:00 NPT
-    - cron: '30 8 * * 0,1,2,3,6'     # 14:15 NPT
-    - cron: '45 8 * * 0,1,2,3,6'     # 14:30 NPT
-    - cron: '0 9 * * 0,1,2,3,6'      # 14:45 NPT
-    - cron: '15 9 * * 0,1,2,3,6'     # 15:00 NPT (market close)
-    
-    # Friday: Short trading day (11:00-13:00 NPT) - NEWLY ADDED
-    - cron: '15 5 * * 5'             # 11:00 NPT (Friday market open)
-    - cron: '30 5 * * 5'             # 11:15 NPT (Friday)
-    - cron: '45 5 * * 5'             # 11:30 NPT (Friday)
-    - cron: '0 6 * * 5'              # 11:45 NPT (Friday)
-    - cron: '15 6 * * 5'             # 12:00 NPT (Friday)
-    - cron: '30 6 * * 5'             # 12:15 NPT (Friday)
-    - cron: '45 6 * * 5'             # 12:30 NPT (Friday)
-    - cron: '0 7 * * 5'              # 12:45 NPT (Friday)
-    - cron: '15 7 * * 5'             # 13:00 NPT (Friday market close)
-  
-  # Allow manual trigger
+    # NEPSE Trading Hours (NPT=UTC+5:45)
+    # Sunday-Thursday full day (11:00–15:00 NPT)
+    - cron: '15 5 * * 0,1,2,3,6'
+    - cron: '30 5 * * 0,1,2,3,6'
+    - cron: '45 5 * * 0,1,2,3,6'
+    - cron: '0 6 * * 0,1,2,3,6'
+    - cron: '15 6 * * 0,1,2,3,6'
+    - cron: '30 6 * * 0,1,2,3,6'
+    - cron: '45 6 * * 0,1,2,3,6'
+    - cron: '0 7 * * 0,1,2,3,6'
+    - cron: '15 7 * * 0,1,2,3,6'
+    - cron: '30 7 * * 0,1,2,3,6'
+    - cron: '45 7 * * 0,1,2,3,6'
+    - cron: '0 8 * * 0,1,2,3,6'
+    - cron: '15 8 * * 0,1,2,3,6'
+    - cron: '30 8 * * 0,1,2,3,6'
+    - cron: '45 8 * * 0,1,2,3,6'
+    - cron: '0 9 * * 0,1,2,3,6'
+    - cron: '15 9 * * 0,1,2,3,6'
+    # Friday short day (11:00–13:00 NPT)
+    - cron: '15 5 * * 5'
+    - cron: '30 5 * * 5'
+    - cron: '45 5 * * 5'
+    - cron: '0 6 * * 5'
+    - cron: '15 6 * * 5'
+    - cron: '30 6 * * 5'
+    - cron: '45 6 * * 5'
+    - cron: '0 7 * * 5'
+    - cron: '15 7 * * 5'
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   collect-nepse-data:
     runs-on: ubuntu-latest
-    
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'
-        
-    - name: Install dependencies
-      run: |
-        pip install requests pandas pytz schedule
-        
-    - name: Set up NepseAPI Server
-      run: |
-        # Clone and start NepseAPI in background
-        git clone https://github.com/surajrimal07/NepseAPI.git
-        cd NepseAPI
-        pip install -r requirements.txt
-        nohup python server.py &
-        sleep 30  # Increased wait time for better reliability
-        
-    - name: Test API Connection
-      run: |
-        # Test if API is working with retries
-        for i in {1..5}; do
-          if curl -f http://localhost:8000/ > /dev/null 2>&1; then
-            echo "API server is running!"
-            break
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Python deps
+        run: |
+          pip install requests pandas pytz schedule
+
+      - name: Set up NepseAPI Server
+        run: |
+          git clone https://github.com/surajrimal07/NepseAPI.git
+          cd NepseAPI
+          pip install -r requirements.txt
+          nohup python server.py &
+          sleep 30
+
+      - name: Test API Connection
+        run: |
+          for i in {1..5}; do
+            if curl -f http://localhost:8000/ > /dev/null 2>&1; then
+              echo "API server is running!"
+              break
+            else
+              echo "Attempt $i/5: API not ready, waiting 10 seconds..."
+              sleep 10
+            fi
+          done
+          curl -f http://localhost:8000/ || (echo "API server failed to start" && exit 1)
+
+      - name: Run NEPSE Data Collection
+        run: |
+          python -c "
+          import sys
+          sys.path.append('.')
+          from cloud_collector import CloudNepseCollector
+          import datetime, pytz
+          nepal_tz = pytz.timezone('Asia/Kathmandu')
+          now = datetime.datetime.now(nepal_tz)
+          collector = CloudNepseCollector()
+          print(f'Current Nepal time: {now}')
+          print(f'Day: {now.strftime(\"%A\")} (weekday {now.weekday()})')
+          print(f'Time: {now.strftime(\"%H:%M NPT\")}')
+          print(f'Market schedule: {collector.get_market_schedule_info(now)}')
+          if collector.is_market_open(now):
+              print('Market should be open - collecting data...')
+              result = collector.collect_single_run()
+              if result == 'market_closed':
+                  print('Market detected as closed during collection')
+              elif result:
+                  print(f'Data collection successful: {result}')
+              else:
+                  print('Data collection failed')
+          else:
+              print('Market is closed - skipping collection')
+              print('Next trading: Check schedule for market hours')
+          "
+
+      - name: Show collection results
+        if: always()
+        run: |
+          echo "Collection Results:"
+          if [ -d "data" ]; then
+            echo "Files created: $(ls data/ | wc -l)"
+            ls -lh data/
+            if ls data/*summary*.json 1> /dev/null 2>&1; then
+              echo "Latest collection summary:"
+              cat data/*summary*.json | tail -1 | python -m json.tool || echo "Summary not readable"
+            fi
           else
-            echo "Attempt $i/5: API not ready, waiting 10 seconds..."
-            sleep 10
+            echo "No data directory found"
           fi
-        done
-        
-        # Final test
-        curl -f http://localhost:8000/ || (echo "API server failed to start" && exit 1)
-        
-    - name: Run NEPSE Data Collection
-      run: |
-        python -c "
-        import sys
-        sys.path.append('.')
-        
-        # Import our collector
-        from cloud_collector import CloudNepseCollector
-        
-        # Create collector instance
-        collector = CloudNepseCollector()
-        
-        # Check if market should be open (GitHub Actions runs on UTC)
-        import datetime
-        import pytz
-        
-        nepal_tz = pytz.timezone('Asia/Kathmandu')
-        now = datetime.datetime.now(nepal_tz)
-        
-        print(f'Current Nepal time: {now}')
-        print(f'Day: {now.strftime(\"%A\")} (weekday {now.weekday()})')
-        print(f'Time: {now.strftime(\"%H:%M NPT\")}')
-        print(f'Market schedule: {collector.get_market_schedule_info(now)}')
-        
-        # Only collect if market should be open
-        if collector.is_market_open(now):
-            print('Market should be open - collecting data...')
-            result = collector.collect_single_run()
-            if result == 'market_closed':
-                print('Market detected as closed during collection')
-            elif result:
-                print(f'Data collection successful: {result}')
-            else:
-                print('Data collection failed')
-        else:
-            print('Market is closed - skipping collection')
-            print('Next trading: Check schedule for market hours')
-        "
-        
-    - name: Show collection results
-      if: always()
-      run: |
-        echo "Collection Results:"
-        if [ -d "data" ]; then
-          echo "Files created: $(ls data/ | wc -l)"
-          ls -lh data/
-          
-          # Show summary if available
-          if ls data/*summary*.json 1> /dev/null 2>&1; then
-            echo "Latest collection summary:"
-            cat data/*summary*.json | tail -1 | python -m json.tool || echo "Summary not readable"
+          if [ -f "logs/cloud_collector.log" ]; then
+            echo "Recent collector logs:"
+            tail -10 logs/cloud_collector.log
           fi
-        else
-          echo "No data directory found"
-        fi
-        
-        # Show logs
-        if [ -f "logs/cloud_collector.log" ]; then
-          echo "Recent collector logs:"
-          tail -10 logs/cloud_collector.log
-        fi
-        
-    - name: Upload collected data
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: nepse-data-${{ github.run_number }}
-        path: |
-          data/
-          logs/
-        retention-days: 30
-        
-    - name: Commit and push data (if any)
-      if: always()
-      run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-        
-        # Only commit if there are files to commit
-        if [ -d "data" ] && [ "$(ls -A data)" ]; then
-          git add data/ logs/ || true
-          git commit -m "Automated NEPSE data collection - $(date -u)" || true
-          git push || true
-          echo "Data committed to repository"
-        else
-          echo "No data files to commit"
-        fi
+
+      - name: Upload artifact (runner)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nepse-data-${{ github.run_number }}
+          path: |
+            data/
+            logs/
+          retention-days: 30
+
+      - name: Commit and push data (if any)
+        if: always()
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          if [ -d "data" ] && [ "$(ls -A data)" ]; then
+            git add data/ logs/ || true
+            git commit -m "Automated NEPSE data collection - $(date -u)" || true
+            git push || true
+            echo "Data committed to repository"
+          else
+            echo "No data files to commit"
+          fi
+
+      # ===== Google Drive upload & housekeeping =====
+      - name: Install rclone
+        run: |
+          curl -fsSL https://rclone.org/install.sh | sudo bash
+
+      - name: Configure rclone (Google Drive via Service Account)
+        shell: bash
+        env:
+          GDRIVE_SA_JSON: ${{ secrets.GDRIVE_SA_JSON }}
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+        run: |
+          mkdir -p ~/.config/rclone
+          # write service account json
+          echo "$GDRIVE_SA_JSON" > /home/runner/sa.json
+          # write rclone config (expand envs)
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [gdrive]
+          type = drive
+          scope = drive
+          service_account_file = /home/runner/sa.json
+          root_folder_id = ${GDRIVE_FOLDER_ID}
+          EOF
+          rclone --version
+
+      - name: Compress CSVs on runner (saves bandwidth + Drive space)
+        run: |
+          if [ -d "data" ]; then
+            mkdir -p tmp_compressed
+            find data -type f -name '*.csv' -print0 | while IFS= read -r -d '' f; do
+              gzip -c "$f" > "tmp_compressed/$(basename "$f").gz"
+            done
+          fi
+
+      - name: Upload data & logs to Drive (date-partitioned)
+        env:
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+        run: |
+          DEST_DATE=$(date -u +'%Y/%m/%d')
+          # Upload compressed CSVs first (if any)
+          if [ -d "tmp_compressed" ] && [ "$(ls -A tmp_compressed)" ]; then
+            rclone copy tmp_compressed gdrive:"$DEST_DATE/raw" \
+              --fast-list --transfers=8 --checkers=16 --create-empty-src-dirs \
+              --drive-stop-on-upload-limit
+          fi
+          # Upload any non-CSV artifacts that you still want preserved
+          if [ -d "data" ]; then
+            find data -type f ! -name '*.csv' -print0 | xargs -0 -I{} bash -c 'rclone copy "{}" gdrive:"'$DEST_DATE'/raw" --fast-list --transfers=4 --checkers=8 || true'
+          fi
+          if [ -d "logs" ] && [ "$(ls -A logs)" ]; then
+            rclone copy "logs" gdrive:"$DEST_DATE/logs" \
+              --fast-list --transfers=4 --checkers=8 --create-empty-src-dirs \
+              --drive-stop-on-upload-limit
+          fi
+
+      - name: Remote retention (prune old raw >120d; keep snapshots)
+        run: |
+          # Only delete within the 'raw' subtree to preserve any monthly snapshots you might keep separately
+          rclone delete gdrive: --min-age 120d --include "*/raw/**" --drive-use-trash || true
+          rclone rmdirs gdrive: --leave-root || true
+
+  # Manual "backfill everything currently in the repo" job
+  backfill-csvs-to-drive:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Write Service Account JSON
+        env:
+          GDRIVE_SA_JSON: ${{ secrets.GDRIVE_SA_JSON }}
+        run: |
+          echo "$GDRIVE_SA_JSON" > sa.json
+
+      - name: Create robust uploader script (no repo change)
+        run: |
+          mkdir -p tools
+          cat > tools/upload_repo_csvs_to_drive.py <<'PY'
+          import os, io, sys, gzip, hashlib, time, datetime, pathlib
+          from typing import Dict, Optional, List
+          from google.oauth2 import service_account
+          from googleapiclient.discovery import build
+          from googleapiclient.http import MediaFileUpload
+          from googleapiclient.errors import HttpError
+
+          SCOPES = ["https://www.googleapis.com/auth/drive"]
+          ROOT_FOLDER_ID = os.getenv("GDRIVE_FOLDER_ID")
+          SA_PATH = os.getenv("SA_JSON_PATH", "sa.json")
+          PARTITION_ROOT = os.getenv("PARTITION_ROOT", "repo-csvs")  # top-level container under ROOT_FOLDER_ID
+          CHUNK_SIZE = 10 * 1024 * 1024  # 10 MB resumable chunks
+          MAX_RETRIES = 8  # aggressive but bounded
+
+          def backoff_sleep(i: int):
+            # full jitter backoff up to ~60s
+            delay = min(60, (2 ** i)) * 0.75
+            time.sleep(delay)
+
+          def md5sum(path: str) -> str:
+            h = hashlib.md5()
+            with open(path, "rb") as f:
+              for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                h.update(chunk)
+            return h.hexdigest()
+
+          class Drive:
+            def __init__(self, creds_path: str):
+              creds = service_account.Credentials.from_service_account_file(creds_path, scopes=SCOPES)
+              self.service = build("drive", "v3", credentials=creds, cache_discovery=False)
+              self.folder_cache: Dict[str, str] = {}  # key: (parent_id,name)
+
+            def _key(self, parent_id: str, name: str) -> str:
+              return f"{parent_id}/{name}"
+
+            def ensure_folder(self, name: str, parent_id: str) -> str:
+              key = self._key(parent_id, name)
+              if key in self.folder_cache:
+                return self.folder_cache[key]
+              query = f"mimeType='application/vnd.google-apps.folder' and name='{name.replace(\"'\",\"\\'\")}' and '{parent_id}' in parents and trashed=false"
+              res = self.service.files().list(q=query, fields="files(id,name)", pageSize=1).execute()
+              files = res.get("files", [])
+              if files:
+                fid = files[0]["id"]
+              else:
+                meta = {"name": name, "mimeType": "application/vnd.google-apps.folder", "parents": [parent_id]}
+                fid = self.service.files().create(body=meta, fields="id").execute()["id"]
+              self.folder_cache[key] = fid
+              return fid
+
+            def find_by_name(self, name: str, parent_id: str) -> List[Dict]:
+              q = f"name='{name.replace(\"'\",\"\\'\")}' and '{parent_id}' in parents and trashed=false"
+              res = self.service.files().list(q=q, fields="files(id,name,md5Checksum,modifiedTime,size)", pageSize=10).execute()
+              return res.get("files", [])
+
+            def upload_or_skip(self, local_path: str, parent_id: str):
+              name = os.path.basename(local_path)
+              local_md5 = md5sum(local_path)
+              existing = self.find_by_name(name, parent_id)
+              for f in existing:
+                if f.get("md5Checksum") == local_md5:
+                  print(f"[SKIP] same md5: {name}")
+                  return
+
+              # If name collides but md5 differs, version the name
+              if existing:
+                stem, ext = os.path.splitext(name)
+                name = f"{stem}_{int(time.time())}{ext}"
+
+              media = MediaFileUpload(local_path, chunksize=CHUNK_SIZE, resumable=True)
+              meta = {"name": name, "parents": [parent_id]}
+              request = self.service.files().create(body=meta, media_body=media, fields="id,md5Checksum,name")
+
+              retry = 0
+              response = None
+              while response is None:
+                try:
+                  status, response = request.next_chunk()
+                  if status:
+                    print(f"[UP] {name} {int(status.progress()*100)}%")
+                except HttpError as e:
+                  code = e.resp.status if hasattr(e, "resp") and e.resp else None
+                  if code in (403, 429, 500, 502, 503, 504) and retry < MAX_RETRIES:
+                    print(f"[RETRY] {name} on {code}: {e}. attempt {retry+1}/{MAX_RETRIES}")
+                    backoff_sleep(retry)
+                    retry += 1
+                    continue
+                  raise
+              print(f"[DONE] {response.get('name')} (md5 {response.get('md5Checksum')})")
+
+          def compress_csv_to_gz(src: str, dst: str):
+            with open(src, "rb") as f_in, gzip.open(dst, "wb") as f_out:
+              while True:
+                chunk = f_in.read(1024 * 1024)
+                if not chunk: break
+                f_out.write(chunk)
+
+          def main():
+            if not ROOT_FOLDER_ID:
+              print("ERROR: GDRIVE_FOLDER_ID env var is required."); sys.exit(1)
+            drv = Drive(SA_PATH)
+
+            # Partition root: repo-csvs/YYYY/MM/DD
+            now = datetime.datetime.utcnow()
+            y_id = drv.ensure_folder(str(now.year), ROOT_FOLDER_ID)
+            m_id = drv.ensure_folder(f"{now.month:02d}", y_id)
+            d_id = drv.ensure_folder(f"{now.day:02d}", m_id)
+            raw_id = drv.ensure_folder(PARTITION_ROOT, d_id)  # repo-csvs under the day
+
+            # Find all CSVs in the repo (excluding .git and typical virtualenv/build dirs)
+            exclude_dirs = {".git", ".github", ".venv", "venv", "env", "__pycache__", "build", "dist", ".mypy_cache", ".pytest_cache", ".ruff_cache"}
+            csv_paths: List[str] = []
+            for root, dirs, files in os.walk(".", topdown=True):
+              # prune excludes
+              dirs[:] = [d for d in dirs if d not in exclude_dirs]
+              for fn in files:
+                if fn.lower().endswith(".csv"):
+                  csv_paths.append(os.path.join(root, fn))
+
+            if not csv_paths:
+              print("No CSVs found in the repo.")
+              return
+
+            tmp_dir = pathlib.Path(".backfill_tmp")
+            tmp_dir.mkdir(exist_ok=True)
+
+            # Compress and upload
+            for p in csv_paths:
+              base = os.path.basename(p)
+              gz_path = tmp_dir / f"{base}.gz"
+              try:
+                compress_csv_to_gz(p, str(gz_path))
+                drv.upload_or_skip(str(gz_path), raw_id)
+              finally:
+                try:
+                  gz_path.unlink(missing_ok=True)
+                except Exception:
+                  pass
+
+            print("Backfill complete.")
+
+          if __name__ == "__main__":
+            main()
+          PY
+
+      - name: Install Google API client
+        run: |
+          pip install --upgrade google-api-python-client google-auth google-auth-httplib2 google-auth-oauthlib
+
+      - name: Run backfill uploader (repo → Drive)
+        env:
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+          SA_JSON_PATH: sa.json
+          PARTITION_ROOT: repo-csvs
+        run: |
+          python tools/upload_repo_csvs_to_drive.py
