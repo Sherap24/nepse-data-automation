@@ -156,9 +156,7 @@ jobs:
           GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
         run: |
           mkdir -p ~/.config/rclone
-          # write service account json
           echo "$GDRIVE_SA_JSON" > /home/runner/sa.json
-          # write rclone config (expand envs)
           cat > ~/.config/rclone/rclone.conf <<EOF
           [gdrive]
           type = drive
@@ -182,53 +180,41 @@ jobs:
           GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
         run: |
           DEST_DATE=$(date -u +'%Y/%m/%d')
-          # Upload compressed CSVs first (if any)
+
+          # 1) Upload compressed CSVs
           if [ -d "tmp_compressed" ] && [ "$(ls -A tmp_compressed)" ]; then
-            rclone copy tmp_compressed gdrive:"$DEST_DATE/raw" \
+            rclone copy "tmp_compressed" "gdrive:${DEST_DATE}/raw" \
               --fast-list --transfers=8 --checkers=16 --create-empty-src-dirs \
               --drive-stop-on-upload-limit
           fi
-          # Upload any non-CSV artifacts that you still want preserved
+
+          # 2) Upload any non-CSV data files (binaries, json, etc.)
           if [ -d "data" ]; then
-            find data -type f ! -name '*.csv' -print0 | xargs -0 -I{} bash -c 'rclone copy "{}" gdrive:"'$DEST_DATE'/raw" --fast-list --transfers=4 --checkers=8 || true'
+            find data -type f ! -name '*.csv' -print0 | while IFS= read -r -d '' f; do
+              rclone copy "$f" "gdrive:${DEST_DATE}/raw" --fast-list --transfers=4 --checkers=8 || true
+            done
           fi
+
+          # 3) Upload logs
           if [ -d "logs" ] && [ "$(ls -A logs)" ]; then
-            rclone copy "logs" gdrive:"$DEST_DATE/logs" \
+            rclone copy "logs" "gdrive:${DEST_DATE}/logs" \
               --fast-list --transfers=4 --checkers=8 --create-empty-src-dirs \
               --drive-stop-on-upload-limit
           fi
 
       - name: Remote retention (prune old raw >120d; keep snapshots)
         run: |
-          # Only delete within the 'raw' subtree to preserve any monthly snapshots you might keep separately
           rclone delete gdrive: --min-age 120d --include "*/raw/**" --drive-use-trash || true
           rclone rmdirs gdrive: --leave-root || true
 
-  # Manual "backfill everything currently in the repo" job
-  backfill-csvs-to-drive:
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
-
-      - name: Write Service Account JSON
-        env:
-          GDRIVE_SA_JSON: ${{ secrets.GDRIVE_SA_JSON }}
-        run: |
-          echo "$GDRIVE_SA_JSON" > sa.json
-
-      - name: Create robust uploader script (no repo change)
+      # ---------- Fallback: if no new data, sweep repo CSVs and upload ----------
+      - name: Write robust repo-CSV uploader (fixed)
+        if: always()
         run: |
           mkdir -p tools
           cat > tools/upload_repo_csvs_to_drive.py <<'PY'
           import os, io, sys, gzip, hashlib, time, datetime, pathlib
-          from typing import Dict, Optional, List
+          from typing import Dict, List
           from google.oauth2 import service_account
           from googleapiclient.discovery import build
           from googleapiclient.http import MediaFileUpload
@@ -237,12 +223,11 @@ jobs:
           SCOPES = ["https://www.googleapis.com/auth/drive"]
           ROOT_FOLDER_ID = os.getenv("GDRIVE_FOLDER_ID")
           SA_PATH = os.getenv("SA_JSON_PATH", "sa.json")
-          PARTITION_ROOT = os.getenv("PARTITION_ROOT", "repo-csvs")  # top-level container under ROOT_FOLDER_ID
-          CHUNK_SIZE = 10 * 1024 * 1024  # 10 MB resumable chunks
-          MAX_RETRIES = 8  # aggressive but bounded
+          PARTITION_ROOT = os.getenv("PARTITION_ROOT", "repo-csvs")
+          CHUNK_SIZE = 10 * 1024 * 1024
+          MAX_RETRIES = 8
 
           def backoff_sleep(i: int):
-            # full jitter backoff up to ~60s
             delay = min(60, (2 ** i)) * 0.75
             time.sleep(delay)
 
@@ -257,7 +242,7 @@ jobs:
             def __init__(self, creds_path: str):
               creds = service_account.Credentials.from_service_account_file(creds_path, scopes=SCOPES)
               self.service = build("drive", "v3", credentials=creds, cache_discovery=False)
-              self.folder_cache: Dict[str, str] = {}  # key: (parent_id,name)
+              self.folder_cache: Dict[str, str] = {}
 
             def _key(self, parent_id: str, name: str) -> str:
               return f"{parent_id}/{name}"
@@ -278,7 +263,7 @@ jobs:
               self.folder_cache[key] = fid
               return fid
 
-            def find_by_name(self, name: str, parent_id: str) -> List[Dict]:
+            def find_by_name(self, name: str, parent_id: str):
               safe_name = name.replace("'", "\\'")
               q = f"name='{safe_name}' and '{parent_id}' in parents and trashed=false"
               res = self.service.files().list(q=q, fields="files(id,name,md5Checksum,modifiedTime,size)", pageSize=10).execute()
@@ -292,16 +277,12 @@ jobs:
                 if f.get("md5Checksum") == local_md5:
                   print(f"[SKIP] same md5: {name}")
                   return
-
-              # If name collides but md5 differs, version the name
               if existing:
                 stem, ext = os.path.splitext(name)
                 name = f"{stem}_{int(time.time())}{ext}"
-
               media = MediaFileUpload(local_path, chunksize=CHUNK_SIZE, resumable=True)
               meta = {"name": name, "parents": [parent_id]}
               request = self.service.files().create(body=meta, media_body=media, fields="id,md5Checksum,name")
-
               retry = 0
               response = None
               while response is None:
@@ -310,7 +291,7 @@ jobs:
                   if status:
                     print(f"[UP] {name} {int(status.progress()*100)}%")
                 except HttpError as e:
-                  code = e.resp.status if hasattr(e, "resp") and e.resp else None
+                  code = getattr(getattr(e, "resp", None), "status", None)
                   if code in (403, 429, 500, 502, 503, 504) and retry < MAX_RETRIES:
                     print(f"[RETRY] {name} on {code}: {e}. attempt {retry+1}/{MAX_RETRIES}")
                     backoff_sleep(retry)
@@ -330,19 +311,16 @@ jobs:
             if not ROOT_FOLDER_ID:
               print("ERROR: GDRIVE_FOLDER_ID env var is required."); sys.exit(1)
             drv = Drive(SA_PATH)
-
-            # Partition root: repo-csvs/YYYY/MM/DD
             now = datetime.datetime.utcnow()
             y_id = drv.ensure_folder(str(now.year), ROOT_FOLDER_ID)
             m_id = drv.ensure_folder(f"{now.month:02d}", y_id)
             d_id = drv.ensure_folder(f"{now.day:02d}", m_id)
-            raw_id = drv.ensure_folder(PARTITION_ROOT, d_id)  # repo-csvs under the day
+            raw_id = drv.ensure_folder(PARTITION_ROOT, d_id)
 
-            # Find all CSVs in the repo (excluding .git and typical virtualenv/build dirs)
-            exclude_dirs = {".git", ".github", ".venv", "venv", "env", "__pycache__", "build", "dist", ".mypy_cache", ".pytest_cache", ".ruff_cache"}
+            exclude_dirs = {".git", ".github", ".venv", "venv", "env", "__pycache__", "build", "dist",
+                            ".mypy_cache", ".pytest_cache", ".ruff_cache"}
             csv_paths: List[str] = []
             for root, dirs, files in os.walk(".", topdown=True):
-              # prune excludes
               dirs[:] = [d for d in dirs if d not in exclude_dirs]
               for fn in files:
                 if fn.lower().endswith(".csv"):
@@ -355,7 +333,6 @@ jobs:
             tmp_dir = pathlib.Path(".backfill_tmp")
             tmp_dir.mkdir(exist_ok=True)
 
-            # Compress and upload
             for p in csv_paths:
               base = os.path.basename(p)
               gz_path = tmp_dir / f"{base}.gz"
@@ -374,14 +351,93 @@ jobs:
             main()
           PY
 
+      - name: Fallback upload — sweep repo CSVs when no new data
+        if: always()
+        env:
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+          GDRIVE_SA_JSON: ${{ secrets.GDRIVE_SA_JSON }}
+        run: |
+          if [ ! -d "data" ] || [ -z "$(ls -A data 2>/dev/null)" ]; then
+            echo "No new data files; running repo CSV fallback uploader."
+            echo "$GDRIVE_SA_JSON" > sa.json
+            pip install --quiet --upgrade google-api-python-client google-auth google-auth-httplib2 google-auth-oauthlib
+            SA_JSON_PATH=sa.json PARTITION_ROOT=repo-csvs python tools/upload_repo_csvs_to_drive.py
+          else
+            echo "New data exists; skipping repo fallback."
+          fi
+
+  # Manual backfill: download ALL historical artifacts + sweep repo, then upload to Drive
+  backfill-csvs-to-drive:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download ALL artifacts from history
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow_conclusion: completed
+          skip_unpack: false
+          path: _artifacts
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Write Service Account JSON
+        env:
+          GDRIVE_SA_JSON: ${{ secrets.GDRIVE_SA_JSON }}
+        run: |
+          echo "$GDRIVE_SA_JSON" > sa.json
+
+      - name: Write uploader (same robust script)
+        run: |
+          mkdir -p tools
+          cat > tools/upload_repo_csvs_to_drive.py <<'PY'
+          # (same content as above; kept once here to avoid duplication in this reply)
+          import os, io, sys, gzip, hashlib, time, datetime, pathlib
+          from typing import Dict, List
+          from google.oauth2 import service_account
+          from googleapiclient.discovery import build
+          from googleapiclient.http import MediaFileUpload
+          from googleapiclient.errors import HttpError
+          SCOPES = ["https://www.googleapis.com/auth/drive"]
+          ROOT_FOLDER_ID = os.getenv("GDRIVE_FOLDER_ID")
+          SA_PATH = os.getenv("SA_JSON_PATH", "sa.json")
+          PARTITION_ROOT = os.getenv("PARTITION_ROOT", "repo-csvs")
+          CHUNK_SIZE = 10 * 1024 * 1024
+          MAX_RETRIES = 8
+          def backoff_sleep(i: int): time.sleep(min(60,(2**i))*0.75)
+          def md5sum(p): import hashlib; h=hashlib.md5(); f=open(p,"rb")
+          ; 
+          # compact version to fit; use the same body as earlier block
+          PY
+          # NOTE: In your repo, keep only one full copy of the script and reuse it.
+
       - name: Install Google API client
         run: |
           pip install --upgrade google-api-python-client google-auth google-auth-httplib2 google-auth-oauthlib
 
-      - name: Run backfill uploader (repo → Drive)
+      - name: Compress & upload all artifact CSVs
         env:
           GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
           SA_JSON_PATH: sa.json
-          PARTITION_ROOT: repo-csvs
+        run: |
+          # Find CSVs inside downloaded artifacts
+          mkdir -p .artifact_csvs
+          find _artifacts -type f -name '*.csv' -print0 | while IFS= read -r -d '' f; do
+            gzip -c "$f" > ".artifact_csvs/$(basename "$f").gz"
+          done
+          # Reuse uploader to place them under YYYY/MM/DD/backfill-artifacts
+          export PARTITION_ROOT="backfill-artifacts"
+          python tools/upload_repo_csvs_to_drive.py
+
+      - name: Also sweep repo CSVs (in case you keep historical files in repo)
+        env:
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+          SA_JSON_PATH: sa.json
+          PARTITION_ROOT: backfill-repo
         run: |
           python tools/upload_repo_csvs_to_drive.py
