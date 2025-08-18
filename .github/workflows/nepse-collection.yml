@@ -266,7 +266,8 @@ jobs:
               key = self._key(parent_id, name)
               if key in self.folder_cache:
                 return self.folder_cache[key]
-              query = f"mimeType='application/vnd.google-apps.folder' and name='{name.replace(\"'\",\"\\'\")}' and '{parent_id}' in parents and trashed=false"
+              safe_name = name.replace("'", "\\'")
+              query = f"mimeType='application/vnd.google-apps.folder' and name='{safe_name}' and '{parent_id}' in parents and trashed=false"
               res = self.service.files().list(q=query, fields="files(id,name)", pageSize=1).execute()
               files = res.get("files", [])
               if files:
@@ -278,7 +279,8 @@ jobs:
               return fid
 
             def find_by_name(self, name: str, parent_id: str) -> List[Dict]:
-              q = f"name='{name.replace(\"'\",\"\\'\")}' and '{parent_id}' in parents and trashed=false"
+              safe_name = name.replace("'", "\\'")
+              q = f"name='{safe_name}' and '{parent_id}' in parents and trashed=false"
               res = self.service.files().list(q=q, fields="files(id,name,md5Checksum,modifiedTime,size)", pageSize=10).execute()
               return res.get("files", [])
 
