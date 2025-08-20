@@ -213,7 +213,7 @@ jobs:
             echo "New data exists; skipping repo fallback."
           fi
 
-  # Manual backfill: download ALL historical artifacts, then upload to My Drive (OAuth)
+  # Manual backfill: download ALL historical artifacts, sort by original date, then upload to My Drive
   backfill-csvs-to-drive:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -228,6 +228,11 @@ jobs:
           skip_unpack: false
           path: _artifacts
 
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
       - name: Install rclone
         run: |
           curl -fsSL https://rclone.org/install.sh | sudo bash
@@ -240,22 +245,112 @@ jobs:
           EOF
           rclone --version
 
-      - name: Compress & upload all artifact CSVs
+      - name: Backfill — partition artifact CSVs by detected date and upload
         run: |
-          mkdir -p .artifact_csvs_gz
-          find _artifacts -type f -name '*.csv' -print0 | while IFS= read -r -d '' f; do
-            gzip -c "$f" > ".artifact_csvs_gz/$(basename "$f").gz"
-          done
-          DEST_DATE=$(date -u +'%Y/%m/%d')
-          rclone copy ".artifact_csvs_gz" "gdrive:${DEST_DATE}/backfill-artifacts" \
+          python - <<'PY'
+          import os, re, gzip, pathlib, datetime, shutil, sys
+          SRC = "_artifacts"
+          STAGE = ".backfill_stage"  # local tree: YYYY/MM/DD/backfill-artifacts
+          os.makedirs(STAGE, exist_ok=True)
+
+          PATS = [
+              re.compile(r"(20\\d{2})(\\d{2})(\\d{2})"),          # 20250819
+              re.compile(r"(20\\d{2})[-_](\\d{2})[-_](\\d{2})"),  # 2025-08-19 or 2025_08_19
+          ]
+
+          def guess_date(path):
+              name = os.path.basename(path)
+              for pat in PATS:
+                  m = pat.search(name)
+                  if m:
+                      return m.group(1), m.group(2), m.group(3)
+              p = pathlib.Path(path)
+              for part in p.parts[::-1]:
+                  for pat in PATS:
+                      m = pat.search(part)
+                      if m:
+                          return m.group(1), m.group(2), m.group(3)
+              ts = os.path.getmtime(path)
+              dt = datetime.datetime.utcfromtimestamp(ts).date()
+              return f"{dt.year:04d}", f"{dt.month:02d}", f"{dt.day:02d}"
+
+          def gz_copy(src_path, dst_gz):
+              os.makedirs(os.path.dirname(dst_gz), exist_ok=True)
+              with open(src_path, "rb") as fin, gzip.open(dst_gz, "wb") as fout:
+                  shutil.copyfileobj(fin, fout)
+
+          csv_count = 0
+          for root, _, files in os.walk(SRC):
+              for fn in files:
+                  if not fn.lower().endswith(".csv"):
+                      continue
+                  src = os.path.join(root, fn)
+                  y, m, d = guess_date(src)
+                  dest_dir = os.path.join(STAGE, y, m, d, "backfill-artifacts")
+                  dest_gz = os.path.join(dest_dir, f"{fn}.gz")
+                  gz_copy(src, dest_gz)
+                  csv_count += 1
+                  if csv_count % 50 == 0:
+                      print(f"Staged {csv_count} CSVs so far...")
+
+          print(f"Staged total {csv_count} CSVs." if csv_count else "No CSVs found in artifacts.")
+          PY
+
+          # Mirror the local YYYY/MM/DD/backfill-artifacts tree to Drive root
+          rclone copy ".backfill_stage" "gdrive:" \
             --fast-list --transfers=8 --checkers=16 --create-empty-src-dirs
 
-      - name: Also sweep repo CSVs (historical files in repo)
+      - name: Also sweep repo CSVs (historical files in repo, partition by date)
         run: |
-          mkdir -p .repo_csvs_gz
-          find . -type f -name '*.csv' -print0 | while IFS= read -r -d '' f; do
-            gzip -c "$f" > ".repo_csvs_gz/$(basename "$f").gz"
-          done
-          DEST_DATE=$(date -u +'%Y/%m/%d')
-          rclone copy ".repo_csvs_gz" "gdrive:${DEST_DATE}/backfill-repo" \
+          python - <<'PY'
+          import os, re, gzip, pathlib, datetime, shutil, sys
+          SRC = "."
+          STAGE = ".repo_backfill_stage"
+          EXCLUDE_DIRS = {".git", ".github", ".venv", "venv", "env", "__pycache__", "build", "dist",
+                          ".mypy_cache", ".pytest_cache", ".ruff_cache", "_artifacts"}
+          os.makedirs(STAGE, exist_ok=True)
+
+          PATS = [
+              re.compile(r"(20\\d{2})(\\d{2})(\\d{2})"),
+              re.compile(r"(20\\d{2})[-_](\\d{2})[-_](\\d{2})"),
+          ]
+
+          def guess_date(path):
+              name = os.path.basename(path)
+              for pat in PATS:
+                  m = pat.search(name)
+                  if m:
+                      return m.group(1), m.group(2), m.group(3)
+              p = pathlib.Path(path)
+              for part in p.parts[::-1]:
+                  for pat in PATS:
+                      m = pat.search(part)
+                      if m:
+                          return m.group(1), m.group(2), m.group(3)
+              ts = os.path.getmtime(path)
+              dt = datetime.datetime.utcfromtimestamp(ts).date()
+              return f"{dt.year:04d}", f"{dt.month:02d}", f"{dt.day:02d}"
+
+          def gz_copy(src_path, dst_gz):
+              os.makedirs(os.path.dirname(dst_gz), exist_ok=True)
+              with open(src_path, "rb") as fin, gzip.open(dst_gz, "wb") as fout:
+                  shutil.copyfileobj(fin, fout)
+
+          csv_count = 0
+          for root, dirs, files in os.walk(SRC, topdown=True):
+              dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
+              for fn in files:
+                  if not fn.lower().endswith(".csv"):
+                      continue
+                  src = os.path.join(root, fn)
+                  y, m, d = guess_date(src)
+                  dest_dir = os.path.join(STAGE, y, m, d, "backfill-repo")
+                  dest_gz = os.path.join(dest_dir, f"{fn}.gz")
+                  gz_copy(src, dest_gz)
+                  csv_count += 1
+
+          print(f"Staged total {csv_count} repo CSVs." if csv_count else "No CSVs found in repo.")
+          PY
+
+          rclone copy ".repo_backfill_stage" "gdrive:" \
             --fast-list --transfers=8 --checkers=16 --create-empty-src-dirs
