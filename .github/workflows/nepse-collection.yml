@@ -36,13 +36,11 @@ on:
 permissions:
   contents: write
 
-# prevent overlapping runs if a tick is slow
-concurrency:
-  group: nepse-collect
-  cancel-in-progress: false
-
 jobs:
   collect-nepse-data:
+    concurrency:
+      group: nepse-collect
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     env:
       TZ_NPT: Asia/Kathmandu
@@ -70,7 +68,6 @@ jobs:
           pip install -r requirements.txt
           nohup python server.py >/tmp/nepseapi.out 2>&1 &
           echo "Starting NepseAPI..."
-          # up to ~2 minutes warmup (12 x 10s)
           for i in {1..12}; do
             if curl -fsS http://localhost:8000/ >/dev/null; then
               echo "NepseAPI is up"
@@ -140,9 +137,10 @@ jobs:
         with:
           name: nepse-data-${{ github.run_number }}
           path: |
-            data/
-            logs/
+            data/**
+            logs/**
           retention-days: 90
+          if-no-files-found: warn
 
       - name: Commit and push data (if any)
         if: always()
@@ -169,45 +167,38 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p ~/.config/rclone
-          # Write multi-line secret exactly as provided
           cat > ~/.config/rclone/rclone.conf <<EOF
           ${{ secrets.RCLONE_CONF }}
           EOF
           rclone --version
-          # Optional: sanity check remote exists
           rclone lsd gdrive: || (echo "rclone remote 'gdrive' not accessible" >&2; exit 1)
 
-      - name: Compress CSVs on runner (unique per run; NPT date/time partition)
+      - name: Compress CSVs on runner (Nepal-time date + HHmm partition)
         run: |
           set -euo pipefail
           if [ -d "data" ]; then
             RUN_STAMP=$(TZ=${TZ_NPT} date +'%H%M')
             DEST_DATE=$(TZ=${TZ_NPT} date +'%Y/%m/%d')
             echo "NPT DEST_DATE=$DEST_DATE RUN_STAMP=$RUN_STAMP"
-            echo "Creating temp bundle for this run..."
             mkdir -p tmp_compressed
-
-            # Keep original filenames; uniqueness is ensured by raw/HHmm subfolder
+            # keep original names; uniqueness via raw/HHmm
             find data -type f -name '*.csv' -print0 | while IFS= read -r -d '' f; do
               rel="tmp_compressed/${f#data/}.gz"
               mkdir -p "$(dirname "$rel")"
               gzip -c "$f" > "$rel"
             done
-
-            echo "Uploading compressed CSVs for this run..."
             rclone copy "tmp_compressed" "gdrive:${DEST_DATE}/raw/${RUN_STAMP}" \
               --fast-list --transfers=8 --checkers=16 --create-empty-src-dirs --checksum
           else
             echo "No data directory; will rely on fallback if enabled below."
           fi
 
-      - name: Upload non-CSV data & logs to Drive (same run partition)
+      - name: Upload non-CSV data & logs (same run partition)
         run: |
           set -euo pipefail
           DEST_DATE=$(TZ=${TZ_NPT} date +'%Y/%m/%d')
           RUN_STAMP=$(TZ=${TZ_NPT} date +'%H%M')
           if [ -d "data" ]; then
-            # Copy JSON, parquet, binaries, etc. (excluding CSV since already gz'd)
             rclone copy "data" "gdrive:${DEST_DATE}/raw/${RUN_STAMP}" \
               --include '**/*.json' --include '**/*.parquet' --include '**/*.bin' \
               --fast-list --transfers=4 --checkers=8 --create-empty-src-dirs --checksum || true
@@ -216,6 +207,14 @@ jobs:
             rclone copy "logs" "gdrive:${DEST_DATE}/logs/${RUN_STAMP}" \
               --fast-list --transfers=4 --checkers=8 --create-empty-src-dirs --checksum || true
           fi
+
+      - name: Verify uploaded files on Drive
+        run: |
+          set -euo pipefail
+          DEST_DATE=$(TZ=${TZ_NPT} date +'%Y/%m/%d')
+          RUN_STAMP=$(TZ=${TZ_NPT} date +'%H%M')
+          echo "Listing gdrive:${DEST_DATE}/raw/${RUN_STAMP}"
+          rclone ls "gdrive:${DEST_DATE}/raw/${RUN_STAMP}" || true
 
       - name: Remote retention (prune old raw >120d; keep snapshots)
         run: |
@@ -244,9 +243,12 @@ jobs:
             echo "New data exists; skipping repo fallback."
           fi
 
-  # Manual backfill (unchanged except minor hardening)
+  # Manual backfill: download ALL historical artifacts & repo CSVs, sort by original date, upload to YYYY/MM/DD/raw/HHmm
   backfill-csvs-to-drive:
     if: github.event_name == 'workflow_dispatch'
+    concurrency:
+      group: nepse-backfill
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -285,7 +287,7 @@ jobs:
           python - <<'PY'
           import os, re, gzip, pathlib, datetime, shutil
           SRC = "_artifacts"
-          STAGE = ".backfill_stage"  # local tree: YYYY/MM/DD/raw
+          STAGE = ".backfill_stage"  # local tree: YYYY/MM/DD/raw/HHmm
           os.makedirs(STAGE, exist_ok=True)
 
           PATS = [
@@ -296,16 +298,18 @@ jobs:
           def guess_date(path):
               name = os.path.basename(path)
               for pat in PATS:
-                  m = pat.search(name); 
-                  if m: return m.group(1), m.group(2), m.group(3)
+                  m = pat.search(name)
+                  if m:
+                      return m.group(1), m.group(2), m.group(3)
               p = pathlib.Path(path)
               for part in p.parts[::-1]:
                   for pat in PATS:
                       m = pat.search(part)
-                      if m: return m.group(1), m.group(2), m.group(3)
+                      if m:
+                          return m.group(1), m.group(2), m.group(3)
               ts = os.path.getmtime(path)
-              dt = datetime.datetime.utcfromtimestamp(ts).date()
-              return f"{dt.year:04d}", f"{dt.month:02d}", f"{dt.day:02d}"
+              dt = datetime.datetime.utcfromtimestamp(ts) + datetime.timedelta(hours=5, minutes=45)
+              return f"{dt.year:04d}", f"{dt.month:02d}", f"{dt.day:02d}", f"{dt.hour:02d}{dt.minute:02d}"
 
           def gz_copy(src_path, dst_gz):
               os.makedirs(os.path.dirname(dst_gz), exist_ok=True)
@@ -316,10 +320,16 @@ jobs:
           csv_count = 0
           for root, _, files in os.walk(SRC):
               for fn in files:
-                  if not fn.lower().endswith(".csv"): continue
+                  if not fn.lower().endswith(".csv"):
+                      continue
                   src = os.path.join(root, fn)
-                  y, m, d = guess_date(src)
-                  dest_dir = os.path.join(STAGE, y, m, d, "raw")
+                  g = guess_date(src)
+                  if isinstance(g, tuple) and len(g) == 4:
+                      y, m, d, hhmm = g
+                  else:
+                      y, m, d = g
+                      hhmm = "0000"
+                  dest_dir = os.path.join(STAGE, y, m, d, "raw", hhmm)
                   dest_gz = os.path.join(dest_dir, f"{fn}.gz")
                   gz_copy(src, dest_gz)
                   csv_count += 1
@@ -350,16 +360,18 @@ jobs:
           def guess_date(path):
               name = os.path.basename(path)
               for pat in PATS:
-                  m = pat.search(name); 
-                  if m: return m.group(1), m.group(2), m.group(3)
+                  m = pat.search(name)
+                  if m:
+                      return m.group(1), m.group(2), m.group(3)
               p = pathlib.Path(path)
               for part in p.parts[::-1]:
                   for pat in PATS:
                       m = pat.search(part)
-                      if m: return m.group(1), m.group(2), m.group(3)
+                      if m:
+                          return m.group(1), m.group(2), m.group(3)
               ts = os.path.getmtime(path)
-              dt = datetime.datetime.utcfromtimestamp(ts).date()
-              return f"{dt.year:04d}", f"{dt.month:02d}", f"{dt.day:02d}"
+              dt = datetime.datetime.utcfromtimestamp(ts) + datetime.timedelta(hours=5, minutes=45)
+              return f"{dt.year:04d}", f"{dt.month:02d}", f"{dt.day:02d}", f"{dt.hour:02d}{dt.minute:02d}"
 
           def gz_copy(src_path, dst_gz):
               os.makedirs(os.path.dirname(dst_gz), exist_ok=True)
@@ -371,12 +383,14 @@ jobs:
           for root, dirs, files in os.walk(SRC, topdown=True):
               dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
               for fn in files:
-                  if not fn.lower().endswith(".csv"): continue
+                  if not fn.lower().endswith(".csv"):
+                      continue
                   src = os.path.join(root, fn)
-                  y, m, d = guess_date(src)
-                  dest_dir = os.path.join(STAGE, y, m, d, "raw")
+                  y, m, d, hhmm = guess_date(src)
+                  dest_dir = os.path.join(STAGE, y, m, d, "raw", hhmm)
                   dest_gz = os.path.join(dest_dir, f"{fn}.gz")
-                  gz_copy(src, dest_gz); csv_count += 1
+                  gz_copy(src, dest_gz)
+                  csv_count += 1
           print(f"Staged total {csv_count} repo CSVs." if csv_count else "No CSVs found in repo.")
           PY
 
