@@ -128,7 +128,7 @@ jobs:
           path: |
             data/
             logs/
-          retention-days: 30
+          retention-days: 90   # keep artifacts longer so backfill can fetch more days
 
       - name: Commit and push data (if any)
         if: always()
@@ -207,13 +207,13 @@ jobs:
             find . -type f -name '*.csv' -print0 | while IFS= read -r -d '' f; do
               gzip -c "$f" > "tmp_repo_gz/$(basename "$f").gz"
             done
-            rclone copy "tmp_repo_gz" "gdrive:${DEST_DATE}/repo-csvs" \
+            rclone copy "tmp_repo_gz" "gdrive:${DEST_DATE}/raw" \
               --fast-list --transfers=8 --checkers=16 --create-empty-src-dirs
           else
             echo "New data exists; skipping repo fallback."
           fi
 
-  # Manual backfill: download ALL historical artifacts, sort by original date, then upload to My Drive
+  # Manual backfill: download ALL historical artifacts & repo CSVs, sort by original date, upload to YYYY/MM/DD/raw
   backfill-csvs-to-drive:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -245,15 +245,14 @@ jobs:
           EOF
           rclone --version
 
-      - name: Backfill — partition artifact CSVs by detected date and upload
+      - name: Backfill — partition artifact CSVs by detected date and upload to raw/
         run: |
           python - <<'PY'
           import os, re, gzip, pathlib, datetime, shutil
           SRC = "_artifacts"
-          STAGE = ".backfill_stage"  # local tree: YYYY/MM/DD/backfill-artifacts
+          STAGE = ".backfill_stage"  # local tree: YYYY/MM/DD/raw
           os.makedirs(STAGE, exist_ok=True)
 
-          # ✅ Correct regex (use \d, not \\d inside raw strings)
           PATS = [
               re.compile(r"(20\d{2})(\d{2})(\d{2})"),          # 20250819
               re.compile(r"(20\d{2})[-_](\d{2})[-_](\d{2})"),  # 2025-08-19 or 2025_08_19
@@ -278,7 +277,7 @@ jobs:
           def gz_copy(src_path, dst_gz):
               os.makedirs(os.path.dirname(dst_gz), exist_ok=True)
               with open(src_path, "rb") as fin, open(dst_gz, "wb") as fout:
-                  # Deterministic gzip (mtime=0) so re-runs don't re-upload changed headers
+                  # deterministic gzip so checksums match; prevents duplicate uploads
                   with gzip.GzipFile(fileobj=fout, mode="wb", mtime=0) as gz:
                       shutil.copyfileobj(fin, gz)
 
@@ -289,21 +288,20 @@ jobs:
                       continue
                   src = os.path.join(root, fn)
                   y, m, d = guess_date(src)
-                  dest_dir = os.path.join(STAGE, y, m, d, "backfill-artifacts")
+                  dest_dir = os.path.join(STAGE, y, m, d, "raw")
                   dest_gz = os.path.join(dest_dir, f"{fn}.gz")
                   gz_copy(src, dest_gz)
                   csv_count += 1
-                  if csv_count % 50 == 0:
+                  if csv_count % 100 == 0:
                       print(f"Staged {csv_count} CSVs so far...")
 
-          print(f"Staged total {csv_count} CSVs." if csv_count else "No CSVs found in artifacts.")
+          print(f"Staged total {csv_count} artifact CSVs." if csv_count else "No CSVs found in artifacts.")
           PY
 
-          # Mirror the local YYYY/MM/DD/backfill-artifacts tree to Drive root
           rclone copy ".backfill_stage" "gdrive:" \
             --fast-list --transfers=8 --checkers=16 --create-empty-src-dirs --checksum
 
-      - name: Also sweep repo CSVs (historical files in repo, partition by date)
+      - name: Also sweep repo CSVs (historical files in repo, partition by date into raw/)
         run: |
           python - <<'PY'
           import os, re, gzip, pathlib, datetime, shutil
@@ -348,7 +346,7 @@ jobs:
                       continue
                   src = os.path.join(root, fn)
                   y, m, d = guess_date(src)
-                  dest_dir = os.path.join(STAGE, y, m, d, "backfill-repo")
+                  dest_dir = os.path.join(STAGE, y, m, d, "raw")
                   dest_gz = os.path.join(dest_dir, f"{fn}.gz")
                   gz_copy(src, dest_gz)
                   csv_count += 1
