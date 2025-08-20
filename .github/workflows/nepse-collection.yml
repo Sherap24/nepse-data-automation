@@ -248,14 +248,15 @@ jobs:
       - name: Backfill — partition artifact CSVs by detected date and upload
         run: |
           python - <<'PY'
-          import os, re, gzip, pathlib, datetime, shutil, sys
+          import os, re, gzip, pathlib, datetime, shutil
           SRC = "_artifacts"
           STAGE = ".backfill_stage"  # local tree: YYYY/MM/DD/backfill-artifacts
           os.makedirs(STAGE, exist_ok=True)
 
+          # ✅ Correct regex (use \d, not \\d inside raw strings)
           PATS = [
-              re.compile(r"(20\\d{2})(\\d{2})(\\d{2})"),          # 20250819
-              re.compile(r"(20\\d{2})[-_](\\d{2})[-_](\\d{2})"),  # 2025-08-19 or 2025_08_19
+              re.compile(r"(20\d{2})(\d{2})(\d{2})"),          # 20250819
+              re.compile(r"(20\d{2})[-_](\d{2})[-_](\d{2})"),  # 2025-08-19 or 2025_08_19
           ]
 
           def guess_date(path):
@@ -276,8 +277,10 @@ jobs:
 
           def gz_copy(src_path, dst_gz):
               os.makedirs(os.path.dirname(dst_gz), exist_ok=True)
-              with open(src_path, "rb") as fin, gzip.open(dst_gz, "wb") as fout:
-                  shutil.copyfileobj(fin, fout)
+              with open(src_path, "rb") as fin, open(dst_gz, "wb") as fout:
+                  # Deterministic gzip (mtime=0) so re-runs don't re-upload changed headers
+                  with gzip.GzipFile(fileobj=fout, mode="wb", mtime=0) as gz:
+                      shutil.copyfileobj(fin, gz)
 
           csv_count = 0
           for root, _, files in os.walk(SRC):
@@ -298,12 +301,12 @@ jobs:
 
           # Mirror the local YYYY/MM/DD/backfill-artifacts tree to Drive root
           rclone copy ".backfill_stage" "gdrive:" \
-            --fast-list --transfers=8 --checkers=16 --create-empty-src-dirs
+            --fast-list --transfers=8 --checkers=16 --create-empty-src-dirs --checksum
 
       - name: Also sweep repo CSVs (historical files in repo, partition by date)
         run: |
           python - <<'PY'
-          import os, re, gzip, pathlib, datetime, shutil, sys
+          import os, re, gzip, pathlib, datetime, shutil
           SRC = "."
           STAGE = ".repo_backfill_stage"
           EXCLUDE_DIRS = {".git", ".github", ".venv", "venv", "env", "__pycache__", "build", "dist",
@@ -311,8 +314,8 @@ jobs:
           os.makedirs(STAGE, exist_ok=True)
 
           PATS = [
-              re.compile(r"(20\\d{2})(\\d{2})(\\d{2})"),
-              re.compile(r"(20\\d{2})[-_](\\d{2})[-_](\\d{2})"),
+              re.compile(r"(20\d{2})(\d{2})(\d{2})"),
+              re.compile(r"(20\d{2})[-_](\d{2})[-_](\d{2})"),
           ]
 
           def guess_date(path):
@@ -333,8 +336,9 @@ jobs:
 
           def gz_copy(src_path, dst_gz):
               os.makedirs(os.path.dirname(dst_gz), exist_ok=True)
-              with open(src_path, "rb") as fin, gzip.open(dst_gz, "wb") as fout:
-                  shutil.copyfileobj(fin, fout)
+              with open(src_path, "rb") as fin, open(dst_gz, "wb") as fout:
+                  with gzip.GzipFile(fileobj=fout, mode="wb", mtime=0) as gz:
+                      shutil.copyfileobj(fin, gz)
 
           csv_count = 0
           for root, dirs, files in os.walk(SRC, topdown=True):
@@ -353,4 +357,4 @@ jobs:
           PY
 
           rclone copy ".repo_backfill_stage" "gdrive:" \
-            --fast-list --transfers=8 --checkers=16 --create-empty-src-dirs
+            --fast-list --transfers=8 --checkers=16 --create-empty-src-dirs --checksum
