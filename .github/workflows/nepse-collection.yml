@@ -2,26 +2,26 @@ name: NEPSE Data Collection + Drive Uploads
 
 on:
   schedule:
-    # NEPSE Trading Hours (NPT=UTC+5:45)
-    # Sunday-Thursday full day (11:00–15:00 NPT)
-    - cron: '15 5 * * 0,1,2,3,6'
-    - cron: '30 5 * * 0,1,2,3,6'
-    - cron: '45 5 * * 0,1,2,3,6'
-    - cron: '0 6 * * 0,1,2,3,6'
-    - cron: '15 6 * * 0,1,2,3,6'
-    - cron: '30 6 * * 0,1,2,3,6'
-    - cron: '45 6 * * 0,1,2,3,6'
-    - cron: '0 7 * * 0,1,2,3,6'
-    - cron: '15 7 * * 0,1,2,3,6'
-    - cron: '30 7 * * 0,1,2,3,6'
-    - cron: '45 7 * * 0,1,2,3,6'
-    - cron: '0 8 * * 0,1,2,3,6'
-    - cron: '15 8 * * 0,1,2,3,6'
-    - cron: '30 8 * * 0,1,2,3,6'
-    - cron: '45 8 * * 0,1,2,3,6'
-    - cron: '0 9 * * 0,1,2,3,6'
-    - cron: '15 9 * * 0,1,2,3,6'
-    # Friday short day (11:00–13:00 NPT)
+    # ---------------- NEPSE Trading Hours (NPT=UTC+5:45) ----------------
+    # Full days: Sunday–Thursday, 11:00–15:00 NPT  => 05:15–09:15 UTC
+    - cron: '15 5 * * 0,1,2,3,4'
+    - cron: '30 5 * * 0,1,2,3,4'
+    - cron: '45 5 * * 0,1,2,3,4'
+    - cron: '0 6 * * 0,1,2,3,4'
+    - cron: '15 6 * * 0,1,2,3,4'
+    - cron: '30 6 * * 0,1,2,3,4'
+    - cron: '45 6 * * 0,1,2,3,4'
+    - cron: '0 7 * * 0,1,2,3,4'
+    - cron: '15 7 * * 0,1,2,3,4'
+    - cron: '30 7 * * 0,1,2,3,4'
+    - cron: '45 7 * * 0,1,2,3,4'
+    - cron: '0 8 * * 0,1,2,3,4'
+    - cron: '15 8 * * 0,1,2,3,4'
+    - cron: '30 8 * * 0,1,2,3,4'
+    - cron: '45 8 * * 0,1,2,3,4'
+    - cron: '0 9 * * 0,1,2,3,4'
+    - cron: '15 9 * * 0,1,2,3,4'
+    # Friday short day: 11:00–13:00 NPT => 05:15–07:15 UTC
     - cron: '15 5 * * 5'
     - cron: '30 5 * * 5'
     - cron: '45 5 * * 5'
@@ -36,57 +36,69 @@ on:
 permissions:
   contents: write
 
+# prevent overlapping runs if a tick is slow
+concurrency:
+  group: nepse-collect
+  cancel-in-progress: false
+
 jobs:
   collect-nepse-data:
     runs-on: ubuntu-latest
+    env:
+      TZ_NPT: Asia/Kathmandu
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
 
       - name: Install Python deps
         run: |
-          pip install requests pandas pytz schedule
+          set -euo pipefail
+          pip install --upgrade pip
+          pip install requests pandas pytz
 
       - name: Set up NepseAPI Server
         run: |
+          set -euo pipefail
           git clone https://github.com/surajrimal07/NepseAPI.git
           cd NepseAPI
           pip install -r requirements.txt
-          nohup python server.py &
-          sleep 30
-
-      - name: Test API Connection
-        run: |
-          for i in {1..5}; do
-            if curl -f http://localhost:8000/ > /dev/null 2>&1; then
-              echo "API server is running!"
-              break
-            else
-              echo "Attempt $i/5: API not ready, waiting 10 seconds..."
-              sleep 10
+          nohup python server.py >/tmp/nepseapi.out 2>&1 &
+          echo "Starting NepseAPI..."
+          # up to ~2 minutes warmup (12 x 10s)
+          for i in {1..12}; do
+            if curl -fsS http://localhost:8000/ >/dev/null; then
+              echo "NepseAPI is up"
+              exit 0
             fi
+            echo "Wait for NepseAPI ($i/12)..."
+            sleep 10
           done
-          curl -f http://localhost:8000/ || (echo "API server failed to start" && exit 1)
+          echo "NepseAPI failed to start" >&2
+          exit 1
 
       - name: Run NEPSE Data Collection
         run: |
-          python -c "
-          import sys
+          set -euo pipefail
+          python - <<'PY'
+          import sys, datetime, pytz
           sys.path.append('.')
           from cloud_collector import CloudNepseCollector
-          import datetime, pytz
+
           nepal_tz = pytz.timezone('Asia/Kathmandu')
           now = datetime.datetime.now(nepal_tz)
+
           collector = CloudNepseCollector()
           print(f'Current Nepal time: {now}')
-          print(f'Day: {now.strftime(\"%A\")} (weekday {now.weekday()})')
-          print(f'Time: {now.strftime(\"%H:%M NPT\")}')
+          print(f'Day: {now.strftime("%A")} (weekday {now.weekday()})')
+          print(f'Time: {now.strftime("%H:%M NPT")}')
           print(f'Market schedule: {collector.get_market_schedule_info(now)}')
+
           if collector.is_market_open(now):
               print('Market should be open - collecting data...')
               result = collector.collect_single_run()
@@ -99,25 +111,27 @@ jobs:
           else:
               print('Market is closed - skipping collection')
               print('Next trading: Check schedule for market hours')
-          "
+          PY
 
       - name: Show collection results
         if: always()
         run: |
+          set -euo pipefail
           echo "Collection Results:"
           if [ -d "data" ]; then
-            echo "Files created: $(ls data/ | wc -l)"
-            ls -lh data/
+            echo "Files created: $(ls -1q data/ | wc -l)"
+            ls -lRh data/ | tail -200
             if ls data/*summary*.json 1> /dev/null 2>&1; then
               echo "Latest collection summary:"
-              cat data/*summary*.json | tail -1 | python -m json.tool || echo "Summary not readable"
+              LATEST=$(ls -t data/*summary*.json | head -1)
+              python -m json.tool < "$LATEST" || echo "Summary not readable"
             fi
           else
             echo "No data directory found"
           fi
           if [ -f "logs/cloud_collector.log" ]; then
             echo "Recent collector logs:"
-            tail -10 logs/cloud_collector.log
+            tail -100 logs/cloud_collector.log || true
           fi
 
       - name: Upload artifact (runner)
@@ -128,11 +142,12 @@ jobs:
           path: |
             data/
             logs/
-          retention-days: 90   # keep artifacts longer so backfill can fetch more days
+          retention-days: 90
 
       - name: Commit and push data (if any)
         if: always()
         run: |
+          set -euo pipefail
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           if [ -d "data" ] && [ "$(ls -A data)" ]; then
@@ -147,73 +162,89 @@ jobs:
       # ===== Google Drive upload & housekeeping =====
       - name: Install rclone
         run: |
+          set -euo pipefail
           curl -fsSL https://rclone.org/install.sh | sudo bash
 
       - name: Configure rclone (OAuth to My Drive)
         run: |
+          set -euo pipefail
           mkdir -p ~/.config/rclone
-          cat > ~/.config/rclone/rclone.conf <<'EOF'
+          # Write multi-line secret exactly as provided
+          cat > ~/.config/rclone/rclone.conf <<EOF
           ${{ secrets.RCLONE_CONF }}
           EOF
           rclone --version
+          # Optional: sanity check remote exists
+          rclone lsd gdrive: || (echo "rclone remote 'gdrive' not accessible" >&2; exit 1)
 
-      - name: Compress CSVs on runner (saves bandwidth + Drive space)
+      - name: Compress CSVs on runner (unique per run; NPT date/time partition)
         run: |
+          set -euo pipefail
           if [ -d "data" ]; then
+            RUN_STAMP=$(TZ=${TZ_NPT} date +'%H%M')
+            DEST_DATE=$(TZ=${TZ_NPT} date +'%Y/%m/%d')
+            echo "NPT DEST_DATE=$DEST_DATE RUN_STAMP=$RUN_STAMP"
+            echo "Creating temp bundle for this run..."
             mkdir -p tmp_compressed
+
+            # Keep original filenames; uniqueness is ensured by raw/HHmm subfolder
             find data -type f -name '*.csv' -print0 | while IFS= read -r -d '' f; do
-              gzip -c "$f" > "tmp_compressed/$(basename "$f").gz"
+              rel="tmp_compressed/${f#data/}.gz"
+              mkdir -p "$(dirname "$rel")"
+              gzip -c "$f" > "$rel"
             done
+
+            echo "Uploading compressed CSVs for this run..."
+            rclone copy "tmp_compressed" "gdrive:${DEST_DATE}/raw/${RUN_STAMP}" \
+              --fast-list --transfers=8 --checkers=16 --create-empty-src-dirs --checksum
+          else
+            echo "No data directory; will rely on fallback if enabled below."
           fi
 
-      - name: Upload data & logs to Drive (date-partitioned)
+      - name: Upload non-CSV data & logs to Drive (same run partition)
         run: |
-          DEST_DATE=$(date -u +'%Y/%m/%d')
-
-          # 1) Upload compressed CSVs
-          if [ -d "tmp_compressed" ] && [ "$(ls -A tmp_compressed)" ]; then
-            rclone copy "tmp_compressed" "gdrive:${DEST_DATE}/raw" \
-              --fast-list --transfers=8 --checkers=16 --create-empty-src-dirs \
-              --drive-stop-on-upload-limit
-          fi
-
-          # 2) Upload any non-CSV data files (binaries, json, etc.)
+          set -euo pipefail
+          DEST_DATE=$(TZ=${TZ_NPT} date +'%Y/%m/%d')
+          RUN_STAMP=$(TZ=${TZ_NPT} date +'%H%M')
           if [ -d "data" ]; then
-            find data -type f ! -name '*.csv' -print0 | while IFS= read -r -d '' f; do
-              rclone copy "$f" "gdrive:${DEST_DATE}/raw" --fast-list --transfers=4 --checkers=8 || true
-            done
+            # Copy JSON, parquet, binaries, etc. (excluding CSV since already gz'd)
+            rclone copy "data" "gdrive:${DEST_DATE}/raw/${RUN_STAMP}" \
+              --include '**/*.json' --include '**/*.parquet' --include '**/*.bin' \
+              --fast-list --transfers=4 --checkers=8 --create-empty-src-dirs --checksum || true
           fi
-
-          # 3) Upload logs
           if [ -d "logs" ] && [ "$(ls -A logs)" ]; then
-            rclone copy "logs" "gdrive:${DEST_DATE}/logs" \
-              --fast-list --transfers=4 --checkers=8 --create-empty-src-dirs \
-              --drive-stop-on-upload-limit
+            rclone copy "logs" "gdrive:${DEST_DATE}/logs/${RUN_STAMP}" \
+              --fast-list --transfers=4 --checkers=8 --create-empty-src-dirs --checksum || true
           fi
 
       - name: Remote retention (prune old raw >120d; keep snapshots)
         run: |
+          set -euo pipefail
           rclone delete gdrive: --min-age 120d --include "*/raw/**" --drive-use-trash || true
           rclone rmdirs gdrive: --leave-root || true
 
-      # ---------- Fallback: if no new data, sweep repo CSVs and upload (OAuth) ----------
+      # ---------- Fallback: if no new data, sweep repo CSVs and upload ----------
       - name: Fallback upload — sweep repo CSVs with rclone
         if: always()
         run: |
+          set -euo pipefail
           if [ ! -d "data" ] || [ -z "$(ls -A data 2>/dev/null)" ]; then
             echo "No new data files; uploading any *.csv in the repo."
-            DEST_DATE=$(date -u +'%Y/%m/%d')
+            DEST_DATE=$(TZ=${TZ_NPT} date +'%Y/%m/%d')
+            RUN_STAMP=$(TZ=${TZ_NPT} date +'%H%M')-repo
             mkdir -p tmp_repo_gz
             find . -type f -name '*.csv' -print0 | while IFS= read -r -d '' f; do
-              gzip -c "$f" > "tmp_repo_gz/$(basename "$f").gz"
+              rel="tmp_repo_gz/${f#./}.gz"
+              mkdir -p "$(dirname "$rel")"
+              gzip -c "$f" > "$rel"
             done
-            rclone copy "tmp_repo_gz" "gdrive:${DEST_DATE}/raw" \
-              --fast-list --transfers=8 --checkers=16 --create-empty-src-dirs
+            rclone copy "tmp_repo_gz" "gdrive:${DEST_DATE}/raw/${RUN_STAMP}" \
+              --fast-list --transfers=8 --checkers=16 --create-empty-src-dirs --checksum
           else
             echo "New data exists; skipping repo fallback."
           fi
 
-  # Manual backfill: download ALL historical artifacts & repo CSVs, sort by original date, upload to YYYY/MM/DD/raw
+  # Manual backfill (unchanged except minor hardening)
   backfill-csvs-to-drive:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -229,24 +260,28 @@ jobs:
           path: _artifacts
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
 
       - name: Install rclone
         run: |
+          set -euo pipefail
           curl -fsSL https://rclone.org/install.sh | sudo bash
 
       - name: Configure rclone (OAuth to My Drive)
         run: |
+          set -euo pipefail
           mkdir -p ~/.config/rclone
-          cat > ~/.config/rclone/rclone.conf <<'EOF'
+          cat > ~/.config/rclone/rclone.conf <<EOF
           ${{ secrets.RCLONE_CONF }}
           EOF
           rclone --version
 
       - name: Backfill — partition artifact CSVs by detected date and upload to raw/
         run: |
+          set -euo pipefail
           python - <<'PY'
           import os, re, gzip, pathlib, datetime, shutil
           SRC = "_artifacts"
@@ -254,22 +289,20 @@ jobs:
           os.makedirs(STAGE, exist_ok=True)
 
           PATS = [
-              re.compile(r"(20\d{2})(\d{2})(\d{2})"),          # 20250819
-              re.compile(r"(20\d{2})[-_](\d{2})[-_](\d{2})"),  # 2025-08-19 or 2025_08_19
+              re.compile(r"(20\d{2})(\d{2})(\d{2})"),
+              re.compile(r"(20\d{2})[-_](\d{2})[-_](\d{2})"),
           ]
 
           def guess_date(path):
               name = os.path.basename(path)
               for pat in PATS:
-                  m = pat.search(name)
-                  if m:
-                      return m.group(1), m.group(2), m.group(3)
+                  m = pat.search(name); 
+                  if m: return m.group(1), m.group(2), m.group(3)
               p = pathlib.Path(path)
               for part in p.parts[::-1]:
                   for pat in PATS:
                       m = pat.search(part)
-                      if m:
-                          return m.group(1), m.group(2), m.group(3)
+                      if m: return m.group(1), m.group(2), m.group(3)
               ts = os.path.getmtime(path)
               dt = datetime.datetime.utcfromtimestamp(ts).date()
               return f"{dt.year:04d}", f"{dt.month:02d}", f"{dt.day:02d}"
@@ -277,15 +310,13 @@ jobs:
           def gz_copy(src_path, dst_gz):
               os.makedirs(os.path.dirname(dst_gz), exist_ok=True)
               with open(src_path, "rb") as fin, open(dst_gz, "wb") as fout:
-                  # deterministic gzip so checksums match; prevents duplicate uploads
                   with gzip.GzipFile(fileobj=fout, mode="wb", mtime=0) as gz:
                       shutil.copyfileobj(fin, gz)
 
           csv_count = 0
           for root, _, files in os.walk(SRC):
               for fn in files:
-                  if not fn.lower().endswith(".csv"):
-                      continue
+                  if not fn.lower().endswith(".csv"): continue
                   src = os.path.join(root, fn)
                   y, m, d = guess_date(src)
                   dest_dir = os.path.join(STAGE, y, m, d, "raw")
@@ -294,7 +325,6 @@ jobs:
                   csv_count += 1
                   if csv_count % 100 == 0:
                       print(f"Staged {csv_count} CSVs so far...")
-
           print(f"Staged total {csv_count} artifact CSVs." if csv_count else "No CSVs found in artifacts.")
           PY
 
@@ -303,6 +333,7 @@ jobs:
 
       - name: Also sweep repo CSVs (historical files in repo, partition by date into raw/)
         run: |
+          set -euo pipefail
           python - <<'PY'
           import os, re, gzip, pathlib, datetime, shutil
           SRC = "."
@@ -319,15 +350,13 @@ jobs:
           def guess_date(path):
               name = os.path.basename(path)
               for pat in PATS:
-                  m = pat.search(name)
-                  if m:
-                      return m.group(1), m.group(2), m.group(3)
+                  m = pat.search(name); 
+                  if m: return m.group(1), m.group(2), m.group(3)
               p = pathlib.Path(path)
               for part in p.parts[::-1]:
                   for pat in PATS:
                       m = pat.search(part)
-                      if m:
-                          return m.group(1), m.group(2), m.group(3)
+                      if m: return m.group(1), m.group(2), m.group(3)
               ts = os.path.getmtime(path)
               dt = datetime.datetime.utcfromtimestamp(ts).date()
               return f"{dt.year:04d}", f"{dt.month:02d}", f"{dt.day:02d}"
@@ -342,15 +371,12 @@ jobs:
           for root, dirs, files in os.walk(SRC, topdown=True):
               dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
               for fn in files:
-                  if not fn.lower().endswith(".csv"):
-                      continue
+                  if not fn.lower().endswith(".csv"): continue
                   src = os.path.join(root, fn)
                   y, m, d = guess_date(src)
                   dest_dir = os.path.join(STAGE, y, m, d, "raw")
                   dest_gz = os.path.join(dest_dir, f"{fn}.gz")
-                  gz_copy(src, dest_gz)
-                  csv_count += 1
-
+                  gz_copy(src, dest_gz); csv_count += 1
           print(f"Staged total {csv_count} repo CSVs." if csv_count else "No CSVs found in repo.")
           PY
 
