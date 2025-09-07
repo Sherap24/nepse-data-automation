@@ -1,0 +1,30 @@
+{
+  "collection_time": "2025-09-07T11:24:13.265042+05:45",
+  "collection_time_npt": "2025-09-07 11:24:13 NPT",
+  "day_of_week": "Sunday",
+  "market_schedule": "Sunday - Trading Hours: 11:00 AM - 3:00 PM NPT",
+  "total_records": 4534,
+  "successful_endpoints": [
+    "floorsheet",
+    "price_volume",
+    "live_market",
+    "summary",
+    "top_gainers",
+    "top_losers",
+    "nepse_index",
+    "supply_demand"
+  ],
+  "records_by_source": {
+    "floorsheet": 3857,
+    "live_market": 236,
+    "price_volume": 210,
+    "top_losers": 130,
+    "top_gainers": 98,
+    "summary": 1,
+    "nepse_index": 1,
+    "supply_demand": 1
+  },
+  "filename": "nepse_cloud_20250907_112413.csv",
+  "market_open": true,
+  "collection_method": "cloud_automated"
+}
