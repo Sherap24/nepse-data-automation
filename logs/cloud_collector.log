@@ -29814,3 +29814,32 @@
 [2025-11-11 14:44:17]    summary: 1 records
 [2025-11-11 14:44:17]    nepse_index: 1 records
 [2025-11-11 14:44:17]    supply_demand: 1 records
+[2025-11-11 14:57:05] 🚀 Starting cloud data collection at 14:57:05 +0545
+[2025-11-11 14:57:05] 📅 Tuesday - Trading Hours: 11:00 AM - 3:00 PM NPT
+[2025-11-11 14:57:05] ✅ NepseAPI server is accessible
+[2025-11-11 14:57:05] 📊 Collecting from floorsheet...
+[2025-11-11 14:57:28] ✅ floorsheet: 52315 records
+[2025-11-11 14:57:29] 📊 Collecting from price_volume...
+[2025-11-11 14:57:30] ✅ price_volume: 254 records
+[2025-11-11 14:57:30] 📊 Collecting from live_market...
+[2025-11-11 14:57:31] ✅ live_market: 327 records
+[2025-11-11 14:57:31] 📊 Collecting from summary...
+[2025-11-11 14:57:32] ✅ summary: Data retrieved
+[2025-11-11 14:57:32] 📊 Collecting from top_gainers...
+[2025-11-11 14:57:33] ✅ top_gainers: 150 records
+[2025-11-11 14:57:33] 📊 Collecting from top_losers...
+[2025-11-11 14:57:34] ✅ top_losers: 153 records
+[2025-11-11 14:57:34] 📊 Collecting from nepse_index...
+[2025-11-11 14:57:35] ✅ nepse_index: Data retrieved
+[2025-11-11 14:57:35] 📊 Collecting from supply_demand...
+[2025-11-11 14:57:37] ✅ supply_demand: Data retrieved
+[2025-11-11 14:57:38] 💾 Cloud collection successful: data/nepse_cloud_20251111_145705.csv
+[2025-11-11 14:57:38] 📊 Total records: 53202 from 8 endpoints
+[2025-11-11 14:57:38]    floorsheet: 52315 records
+[2025-11-11 14:57:38]    live_market: 327 records
+[2025-11-11 14:57:38]    price_volume: 254 records
+[2025-11-11 14:57:38]    top_losers: 153 records
+[2025-11-11 14:57:38]    top_gainers: 150 records
+[2025-11-11 14:57:38]    summary: 1 records
+[2025-11-11 14:57:38]    nepse_index: 1 records
+[2025-11-11 14:57:38]    supply_demand: 1 records
