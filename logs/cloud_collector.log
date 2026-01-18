@@ -40340,3 +40340,32 @@
 [2026-01-18 12:06:21]    summary: 1 records
 [2026-01-18 12:06:21]    nepse_index: 1 records
 [2026-01-18 12:06:21]    supply_demand: 1 records
+[2026-01-18 12:34:40] 🚀 Starting cloud data collection at 12:34:40 +0545
+[2026-01-18 12:34:40] 📅 Sunday - Trading Hours: 11:00 AM - 3:00 PM NPT
+[2026-01-18 12:34:40] ✅ NepseAPI server is accessible
+[2026-01-18 12:34:40] 📊 Collecting from floorsheet...
+[2026-01-18 12:35:00] ✅ floorsheet: 36783 records
+[2026-01-18 12:35:00] 📊 Collecting from price_volume...
+[2026-01-18 12:35:01] ✅ price_volume: 260 records
+[2026-01-18 12:35:01] 📊 Collecting from live_market...
+[2026-01-18 12:35:03] ✅ live_market: 321 records
+[2026-01-18 12:35:03] 📊 Collecting from summary...
+[2026-01-18 12:35:05] ✅ summary: Data retrieved
+[2026-01-18 12:35:05] 📊 Collecting from top_gainers...
+[2026-01-18 12:35:06] ✅ top_gainers: 224 records
+[2026-01-18 12:35:06] 📊 Collecting from top_losers...
+[2026-01-18 12:35:07] ✅ top_losers: 86 records
+[2026-01-18 12:35:07] 📊 Collecting from nepse_index...
+[2026-01-18 12:35:08] ✅ nepse_index: Data retrieved
+[2026-01-18 12:35:08] 📊 Collecting from supply_demand...
+[2026-01-18 12:35:09] ✅ supply_demand: Data retrieved
+[2026-01-18 12:35:10] 💾 Cloud collection successful: data/nepse_cloud_20260118_123440.csv
+[2026-01-18 12:35:10] 📊 Total records: 37677 from 8 endpoints
+[2026-01-18 12:35:10]    floorsheet: 36783 records
+[2026-01-18 12:35:10]    live_market: 321 records
+[2026-01-18 12:35:10]    price_volume: 260 records
+[2026-01-18 12:35:10]    top_gainers: 224 records
+[2026-01-18 12:35:10]    top_losers: 86 records
+[2026-01-18 12:35:10]    summary: 1 records
+[2026-01-18 12:35:10]    nepse_index: 1 records
+[2026-01-18 12:35:10]    supply_demand: 1 records
