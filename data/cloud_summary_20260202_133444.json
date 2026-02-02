@@ -1,0 +1,28 @@
+{
+  "collection_time": "2026-02-02T13:34:44.426411+05:45",
+  "collection_time_npt": "2026-02-02 13:34:44 NPT",
+  "day_of_week": "Monday",
+  "market_schedule": "Monday - Trading Hours: 11:00 AM - 3:00 PM NPT",
+  "total_records": 879,
+  "successful_endpoints": [
+    "price_volume",
+    "live_market",
+    "summary",
+    "top_gainers",
+    "top_losers",
+    "nepse_index",
+    "supply_demand"
+  ],
+  "records_by_source": {
+    "live_market": 322,
+    "price_volume": 260,
+    "top_losers": 165,
+    "top_gainers": 129,
+    "summary": 1,
+    "nepse_index": 1,
+    "supply_demand": 1
+  },
+  "filename": "nepse_cloud_20260202_133444.csv",
+  "market_open": true,
+  "collection_method": "cloud_automated"
+}
