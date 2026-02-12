@@ -46533,3 +46533,31 @@
 [2026-02-12 13:22:22]    summary: 1 records
 [2026-02-12 13:22:22]    nepse_index: 1 records
 [2026-02-12 13:22:22]    supply_demand: 1 records
+[2026-02-12 13:40:01] 🚀 Starting cloud data collection at 13:40:01 +0545
+[2026-02-12 13:40:01] 📅 Thursday - Trading Hours: 11:00 AM - 3:00 PM NPT
+[2026-02-12 13:40:01] ✅ NepseAPI server is accessible
+[2026-02-12 13:40:01] 📊 Collecting from floorsheet...
+[2026-02-12 13:40:31] ❌ floorsheet: HTTPConnectionPool(host='localhost', port=8000): Read timed out. (read timeout=3...
+[2026-02-12 13:40:31] 📊 Collecting from price_volume...
+[2026-02-12 13:40:33] ✅ price_volume: 260 records
+[2026-02-12 13:40:33] 📊 Collecting from live_market...
+[2026-02-12 13:40:34] ✅ live_market: 322 records
+[2026-02-12 13:40:34] 📊 Collecting from summary...
+[2026-02-12 13:40:35] ✅ summary: Data retrieved
+[2026-02-12 13:40:35] 📊 Collecting from top_gainers...
+[2026-02-12 13:40:37] ✅ top_gainers: 200 records
+[2026-02-12 13:40:37] 📊 Collecting from top_losers...
+[2026-02-12 13:40:38] ✅ top_losers: 107 records
+[2026-02-12 13:40:38] 📊 Collecting from nepse_index...
+[2026-02-12 13:40:39] ✅ nepse_index: Data retrieved
+[2026-02-12 13:40:39] 📊 Collecting from supply_demand...
+[2026-02-12 13:40:41] ✅ supply_demand: Data retrieved
+[2026-02-12 13:40:41] 💾 Cloud collection successful: data/nepse_cloud_20260212_134001.csv
+[2026-02-12 13:40:41] 📊 Total records: 892 from 7 endpoints
+[2026-02-12 13:40:41]    live_market: 322 records
+[2026-02-12 13:40:41]    price_volume: 260 records
+[2026-02-12 13:40:41]    top_gainers: 200 records
+[2026-02-12 13:40:41]    top_losers: 107 records
+[2026-02-12 13:40:41]    summary: 1 records
+[2026-02-12 13:40:41]    nepse_index: 1 records
+[2026-02-12 13:40:41]    supply_demand: 1 records
